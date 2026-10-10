@@ -16,7 +16,7 @@ dependencies = [
     "pypdf[crypto]>=6.19,<7",
     "pdf2docx>=0.5.13,<0.6",
     "python-docx>=1.2,<2",
-    "PyMuPDF>=1.26,<2",
+    "PyMuPDF>=1.28.2,<2",
 ]
 
 [project.optional-dependencies]

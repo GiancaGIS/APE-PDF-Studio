@@ -236,7 +236,9 @@ def inspect_reader(reader) -> tuple[str, ...]:
                 if action not in ("/GoTo", "/URI", "/JavaScript", "/Launch", *external_actions, *multimedia_actions):
                     found.add("unknown_action")
             if isinstance(value, StreamObject):
-                if int(value.get("/Length", 0)) > MAX_STREAM_BYTES:
+                # pypdf removes /Length while reading a stream. Check the bytes
+                # it actually stored, rather than relying on the removed key.
+                if len(value._data) > MAX_STREAM_BYTES or int(value.get("/Length", 0)) > MAX_STREAM_BYTES:
                     raise PDFSecurityError(tr("stream PDF superiore al limite di 32 MiB."))
                 if object_type == "/Metadata" or subtype == "/XML":
                     inspect_xml(value)

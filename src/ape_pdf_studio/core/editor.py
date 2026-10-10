@@ -116,6 +116,9 @@ class PDFEditor:
                 self._copy_metadata(writer, reader)
             with candidate.open("wb") as stream:
                 writer.write(stream)
+            # Combined pages and generated content must still satisfy the input
+            # policy before the revision is parsed or passed to the renderer.
+            report = check_pdf(candidate)
             # Verify the PDF was produced before changing history.
             check = PdfReader(candidate)
             count = len(check.pages)
@@ -139,6 +142,10 @@ class PDFEditor:
             self._saved_index = -1
         self._revisions = self._revisions[: self._index + 1] + [candidate]
         self._index += 1
+        self.security_report = SecurityReport(
+            tuple(sorted(set(self.security_report.findings) | set(report.findings))),
+            self.security_report.memory_limited and report.memory_limited,
+        )
 
     @staticmethod
     def _valid_page(page: int, count: int) -> None:

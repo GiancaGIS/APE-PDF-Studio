@@ -43,6 +43,7 @@ from .print_dialog import PrintDialog
 from .ocr import OcrDialog, OcrJob
 from .language import configure_language
 from .licenses_dialog import LicensesDialog
+from .updates_dialog import UpdatesDialog
 from ..core.localization import DEFAULT_LANGUAGE, normalize_language, tr
 
 
@@ -254,6 +255,8 @@ class MainWindow(QMainWindow):
         settings_menu = self.menuBar().addMenu(tr("Impostazioni"))
         settings_menu.addAction(self.a_settings)
         help_menu = self.menuBar().addMenu(tr("Aiuto"))
+        self.a_updates = self._action(tr("Verifica aggiornamenti…"), self.show_updates)
+        help_menu.addAction(self.a_updates)
         help_menu.addAction(self._action(tr("Informazioni"), self.about))
         help_menu.addAction(self._action(tr("Licenze e codice sorgente"), self.show_licenses))
 
@@ -1079,6 +1082,12 @@ class MainWindow(QMainWindow):
         if recognized:
             detail += tr(" Controlla il testo. Usa Salva per conservarlo oppure Ctrl+Z per annullare.")
         QMessageBox.information(self, tr("OCR completato"), detail)
+
+    def show_updates(self) -> None:
+        dialog = UpdatesDialog(self)
+        dialog.check()
+        dialog.exec()
+        dialog.deleteLater()
 
     def about(self) -> None:
         QMessageBox.information(

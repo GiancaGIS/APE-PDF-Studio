@@ -89,6 +89,12 @@ Menus, dialogs, messages, and progress text follow the selected language. PDF te
 
 Color themes apply immediately. Choose blue, teal, sage green, graphite gray, or violet; preview a theme before applying it, or reset to the default blue.
 
+## Checking for updates
+
+Use **Help → Check for updates…** (**Aiuto → Verifica aggiornamenti…** in Italian). The app queries the [official GitHub latest-release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) for `GiancaGIS/APE-PDF-Studio`, compares stable `major.minor.patch` versions numerically, and offers a button to open a newer release in your browser. Install updates manually from that page.
+
+Checks run only when requested, asynchronously, with a 12-second deadline and a 1 MiB response limit. They use HTTPS with certificate validation, reject redirects, and send no PDF contents, paths, passwords, or GitHub tokens. GitHub receives the normal network request, including your IP address and the application's version in its User-Agent. A missing public release, request limit, invalid response, or connection failure is reported separately from an up-to-date result. Drafts and prereleases are excluded. Tags must use `1.2.3` or `v1.2.3`, optionally with SemVer build metadata; publishing a Git tag alone does not create a release.
+
 ## Windows installer
 
 The standalone installer includes Python, Qt, and the application dependencies. The destination PC does **not** need a Python installation.
@@ -226,6 +232,8 @@ After edits, the banner notes that signatures and declarations belong to the ori
 The preventive check is always enabled, including in the CLI. Before interpreting a PDF in the main process, the app creates a size-bounded private snapshot and checks those same bytes in a separate Python process. Passwords are sent through standard input and do not appear in command-line arguments. The source security worker ignores `PYTHONPATH` and the current directory when importing modules; compiled workers use their bundled code.
 
 Structural analysis visits the catalog, pages, annotations, forms, references, and xref objects, including compressed objects. It does not execute JavaScript, PDF actions, or attachments. Recognized active content blocks opening, with no interface bypass. A blocked file contains unsupported content or failed a check; **blocking does not prove the presence of malware**. The original stays intact.
+
+Generated edit revisions are checked before entering the undo history or renderer. This also enforces the page limit on merged documents. Stream checks inspect the stored bytes as well as any declared length; pypdf removes the `/Length` key during parsing. See the [security review](docs/security-review.md) for verification scope, dependency findings, and remaining risks.
 
 Embedded attachments and ordinary HTTP/HTTPS/email links are reported and not opened. Attachments may remain in saved PDFs; they are not stripped or disinfected. Signed, PDF/A-declared, and encrypted documents must also pass the check, with encrypted PDFs checked after receiving the password.
 

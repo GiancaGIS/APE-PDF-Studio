@@ -281,3 +281,68 @@ def test_xml_entities_are_blocked_even_without_stream_type_and_subtype(tmp_path)
         w.root_object[NameObject("/Metadata")] = w._add_object(stream)
     with pytest.raises(PDFSecurityError, match="XML"):
         PDFEditor(write_pdf(tmp_path, change))
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_actual_stream_bytes_are_bounded_after_pypdf_removes_length(tmp_path, monkeypatch, compressed):
+    def change(writer):
+        stream = DecodedStreamObject()
+        stream.set_data(bytes(range(256)))
+        if compressed:
+            stream = stream.flate_encode()
+        writer.pages[0][NameObject("/Contents")] = writer._add_object(stream)
+    source = write_pdf(tmp_path, change)
+    monkeypatch.setattr(security, "MAX_STREAM_BYTES", 128)
+    with PdfReader(source) as reader:
+        stream = reader.pages[0]["/Contents"]
+        assert "/Length" not in stream and len(stream._data) > 128
+        with pytest.raises(PDFSecurityError, match="stream PDF"):
+            security.inspect_reader(reader)
+
+
+def test_oversized_stream_is_rejected_before_main_process_parse(tmp_path, monkeypatch):
+    def change(writer):
+        stream = DecodedStreamObject()
+        stream.set_data(b" " * (security.MAX_STREAM_BYTES + 1))
+        writer.pages[0][NameObject("/Contents")] = writer._add_object(stream)
+    source = write_pdf(tmp_path, change)
+    monkeypatch.setattr("ape_pdf_studio.core.editor.PdfReader", lambda *a, **k: pytest.fail("Unsafe main process parse"))
+    with pytest.raises(PDFSecurityError):
+        PDFEditor(source)
+
+
+def test_generated_active_revision_is_rejected_without_changing_history(tmp_path):
+    source = write_pdf(tmp_path)
+    editor = PDFEditor(source)
+    original = editor.path
+    def transform(writer, reader):
+        writer.append(reader)
+        writer.root_object[NameObject("/OpenAction")] = writer._add_object(action("/Launch"))
+    try:
+        with pytest.raises(PDFSecurityError, match="avvio"):
+            editor._commit(transform)
+        assert editor.path == original and not editor.dirty and not editor.can_undo
+        assert not list(Path(editor._temp.name).glob("rev_*.pdf"))
+        assert not editor.security_report.findings
+    finally:
+        editor.close()
+
+
+def test_combining_valid_pdfs_cannot_exceed_the_page_limit(tmp_path):
+    sources = []
+    for number, count in enumerate((1500, 1501)):
+        writer = PdfWriter()
+        for _ in range(count):
+            writer.add_blank_page(100, 100)
+        path = tmp_path / f"part{number}.pdf"
+        writer.write(path)
+        sources.append(path)
+    editor = PDFEditor(sources[0])
+    original = editor.path
+    try:
+        with pytest.raises(PDFSecurityError, match="3000"):
+            editor.insert_pdf(sources[1], 0)
+        assert editor.path == original and not editor.dirty and not editor.can_undo
+        assert not list(Path(editor._temp.name).glob("rev_*.pdf"))
+    finally:
+        editor.close()
