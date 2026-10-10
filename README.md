@@ -160,7 +160,7 @@ OCR adds an **invisible, searchable, selectable, and copyable text layer**. It k
 
 Recognition runs locally with PyMuPDF's integrated OCR engine. On first use, **Download missing language data on first use** downloads up to **7 MB** of models from the official [Tesseract tessdata_fast project](https://github.com/tesseract-ocr/tessdata_fast/tree/4.1.0), verifies their SHA-256 hashes, and stores them in the application data folder. Only models are downloaded; your PDF is not uploaded. OCR works offline after that download. The models are distributed under Apache-2.0.
 
-On Windows, downloaded models are stored in `%LOCALAPPDATA%\GiancaGIS\APE PDF Studio\ocr\tessdata`: `ita.traineddata` for Italian and `eng.traineddata` for English. Previously downloaded, verified models in the APE or APEX data folders are copied to this location automatically when starting OCR; the original files are retained.
+On Windows, downloaded models are stored in `%LOCALAPPDATA%\GiancaGIS\APE PDF Studio\ocr\tessdata`: `ita.traineddata` for Italian and `eng.traineddata` for English.
 
 To use existing models, set `TESSDATA_PREFIX` to a folder containing `ita.traineddata` and/or `eng.traineddata` before starting the app. Standard Tesseract folders on Windows, macOS, and Linux are also checked. If models are missing and downloads are disabled, the app reports an error and leaves the document unchanged. No additional Python dependency is needed: [PyMuPDF includes integrated OCR support](https://pymupdf.readthedocs.io/en/latest/installation.html#enabling-integrated-ocr-support).
 
@@ -291,7 +291,8 @@ ape-pdf-cli examples/sample_document.pdf note 1 "Review this page" -o with_note.
 
 The PDF engine does not import Qt and can be used independently of the interface.
 
-The current product and launcher names are **APE PDF Studio**, `ape-pdf-studio`, `ape-pdf-cli`, and `python -m ape_pdf_studio`. The application package is `ape_pdf_studio`; the previous `apex-pdf-studio` / `apex-pdf-cli` commands remain available for compatibility. The rename preserves saved settings, recent documents, and previously downloaded OCR models.
+The current product and launcher names are **APE PDF Studio**, `ape-pdf-studio`, `ape-pdf-cli`, and `python -m ape_pdf_studio`. The application package is `ape_pdf_studio`.
+The rename preserves saved settings, recent documents, and previously downloaded OCR models.
 
 ## Development and verification
 
