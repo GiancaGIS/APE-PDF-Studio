@@ -1,0 +1,4 @@
+LIBRARY APEPDFShell
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

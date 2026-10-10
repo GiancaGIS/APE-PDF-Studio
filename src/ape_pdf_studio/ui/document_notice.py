@@ -1,0 +1,60 @@
+"""Compact document notices with explicit, inspectable verification status."""
+from ..core.localization import tr
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolButton
+
+
+class DocumentNotice(QFrame):
+    details_requested = Signal()
+
+    def __init__(self, editor, parent=None):
+        super().__init__(parent)
+        self.editor = editor
+        self.setObjectName("DocumentNotice")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(14, 5, 10, 5)
+        row.setSpacing(12)
+        self.text = QLabel()
+        self.text.setTextFormat(Qt.TextFormat.PlainText)
+        self.text.setWordWrap(True)
+        row.addWidget(self.text, 1)
+        details = QToolButton()
+        self.details = details
+        details.setText(tr("Dettagli"))
+        details.clicked.connect(self.show_details)
+        row.addWidget(details)
+        self.refresh()
+
+    def refresh(self):
+        info = self.editor.document_info
+        modified = self.editor.modified_from_original
+        parts = []
+        if info.pdfa:
+            parts.append(tr("{0} nell'originale · conformità da verificare", info.pdfa) if modified else tr('{0} dichiarato', info.pdfa))
+        if info.signatures:
+            count = len(info.signatures)
+            label = tr("1 firma digitale") if count == 1 else tr('{0} firme digitali', count)
+            parts.append(tr("{0} nell'originale · PDF modificato", label) if modified else tr('{0} · validità non verificata', label))
+        if info.warnings:
+            parts.append(tr("Lettura metadati incompleta"))
+        security = self.editor.security_report
+        if "attachments" in security.findings:
+            parts.append(tr("Allegati incorporati · apertura disabilitata"))
+        if "external_links" in security.findings:
+            parts.append(tr("Collegamenti esterni · apertura disabilitata"))
+        self.text.setText("   •   ".join(parts))
+        self.setToolTip(tr("PDF/A: identificazione dai metadati XMP, conformità non validata.\n"
+                        "Firme: presenza di dati di firma, validità crittografica non verificata.\n"
+                        "Le modifiche possono invalidare le firme e la conformità PDF/A.\n"
+                        "Controllo preventivo attivo: dettagli nella scheda Sicurezza. Non è una scansione antivirus."))
+        self.setProperty("modified", bool(modified))
+        self.setProperty("securityWarning", bool(security.findings))
+        # Descendant selectors must be refreshed too when the warning changes.
+        for widget in (self, self.text, self.details):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        self.setVisible(bool(parts))
+
+    def show_details(self):
+        self.details_requested.emit()

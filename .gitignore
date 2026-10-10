@@ -1,0 +1,14 @@
+.venv/
+.venv-build/
+.dev-deps/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+*.spec
+!installer/APEPDFStudio.spec
+.DS_Store
+.idea/
+.vscode/

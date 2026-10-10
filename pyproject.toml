@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ape-pdf-studio"
+version = "1.0.0"
+description = "Desktop PDF reader and non-destructive page editor built with PySide6 and pypdf"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "SOURCE_CODE.md", "licenses/*.txt"]
+authors = [{name = "GiancaGIS"}]
+dependencies = [
+    "PySide6>=6.8,<7",
+    "pypdf[crypto]>=6.19,<7",
+    "pdf2docx>=0.5.13,<0.6",
+    "python-docx>=1.2,<2",
+    "PyMuPDF>=1.26,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+installer = ["pyinstaller>=6.16,<7"]
+
+[project.gui-scripts]
+ape-pdf-studio = "ape_pdf_studio.app:main"
+# Keep existing commands working for previous installations and automation.
+apex-pdf-studio = "ape_pdf_studio.app:main"
+
+[project.scripts]
+ape-pdf-cli = "ape_pdf_studio.core.cli:main"
+apex-pdf-cli = "ape_pdf_studio.core.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ape_pdf_studio = ["locales/*.json", "assets/*.svg", "assets/*.png", "assets/*.ico"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
