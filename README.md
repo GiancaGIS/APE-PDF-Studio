@@ -16,7 +16,7 @@
 
 <p align="center">
   <strong>Windows desktop</strong> &nbsp; / &nbsp;
-  <strong>Python 3.11+</strong> &nbsp; / &nbsp;
+  <strong>Python 3.14+</strong> &nbsp; / &nbsp;
   <strong>4 interface languages</strong> &nbsp; / &nbsp;
   <strong>Local OCR</strong>
 </p>
