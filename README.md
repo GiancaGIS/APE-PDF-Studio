@@ -387,3 +387,7 @@ See [source and rebuild instructions](SOURCE_CODE.md) and the
 - [PyMuPDF](https://pymupdf.readthedocs.io/)
 - [Project license](LICENSE)
 
+
+## Disclaimer
+
+The software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
