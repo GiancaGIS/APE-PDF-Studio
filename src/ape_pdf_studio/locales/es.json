@@ -551,5 +551,22 @@
   "Impossibile aprire il browser. Riprova.": "No se puede abrir el navegador. Inténtalo de nuevo.",
   "GitHub ha limitato le richieste. Riprova più tardi.": "GitHub ha limitado las solicitudes. Inténtalo más tarde.",
   "Controllo aggiornamenti non riuscito (HTTP {0}).": "Error al buscar actualizaciones (HTTP {0}).",
-  "La risposta di GitHub non contiene una versione stabile valida.": "La respuesta de GitHub no contiene una versión estable válida."
+  "La risposta di GitHub non contiene una versione stabile valida.": "La respuesta de GitHub no contiene una versión estable válida.",
+  "Modifiche disabilitate · documento aperto in sola lettura": "Edición deshabilitada · documento abierto en modo de solo lectura",
+  "Il documento è protetto. Le modifiche e il salvataggio sono disabilitati.": "El documento está protegido. La edición y el guardado están deshabilitados.",
+  "Produttore": "Productor",
+  "Data di creazione": "Fecha de creación",
+  "Data di modifica": "Fecha de modificación",
+  "Versione PDF": "Versión PDF",
+  "Non dichiarato": "No declarado",
+  "Firme digitali": "Firmas digitales",
+  "Protezione": "Protección",
+  "Nessuna cifratura": "Sin cifrado",
+  "Modifica contenuto": "Edición del contenido",
+  "Annotazioni": "Anotaciones",
+  "Copia del testo": "Copia del texto",
+  "Consentita": "Permitida",
+  "Non consentita": "No permitida",
+  "Differenze tra metadati Info e XMP.": "Diferencias entre los metadatos Info y XMP.",
+  "Avvisi": "Avisos"
 }

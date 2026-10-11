@@ -13,7 +13,7 @@ from PySide6.QtCore import QPoint, QPointF, QSettings, Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QImage, QPalette, QWheelEvent
 from PySide6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox, QTabBar
 
 from ape_pdf_studio.ui.main_window import MainWindow
 from ape_pdf_studio.ui.theme import DEFAULT_THEME, THEMES, apply_theme, theme_colors, theme_color
@@ -271,13 +271,36 @@ def test_closing_dirty_tab_can_save_and_cancel(window, tmp_path, monkeypatch):
     window._edit("rotate", 0, 90)
     monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Save)
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: ("", ""))
-    window.close_tab(0)
+    close = window.tabs.tabBar().tabButton(0, QTabBar.ButtonPosition.RightSide)
+    QTest.mouseClick(close, Qt.MouseButton.LeftButton)
     assert window.tabs.count() == 1
     saved = tmp_path / "close-saved.pdf"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(saved), ""))
-    window.close_tab(0)
+    QTest.mouseClick(close, Qt.MouseButton.LeftButton)
     assert window.tabs.count() == 0
     assert saved.exists()
+
+
+def test_tab_close_after_reordering_keeps_other_document_active(window, text_pdf, tmp_path, monkeypatch):
+    first = window.current
+    window._edit("rotate", 0, 90)
+    bar = window.tabs.tabBar()
+    close_first = bar.tabButton(0, QTabBar.ButtonPosition.RightSide)
+    other = tmp_path / "A long document filename with an identifiable ending 2026.pdf"
+    other.write_bytes(text_pdf.read_bytes())
+    window.open_pdf(other)
+    second = window.current
+    bar.moveTab(0, 1)
+    assert window.tabs.widget(1) is first and window.tabs.widget(0) is second
+    assert window.tabs.tabText(1).endswith(" *")
+    assert window.tabs.tabToolTip(0) == str(other.resolve())
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Cancel)
+    QTest.mouseClick(close_first, Qt.MouseButton.LeftButton)
+    assert window.tabs.count() == 2 and window.current is second
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Discard)
+    QTest.mouseClick(close_first, Qt.MouseButton.LeftButton)
+    assert window.tabs.count() == 1 and window.current is second
+    assert second.pdf.status() == QPdfDocument.Status.Ready
 
 
 def test_search_is_per_tab_when_switching_before_debounce(window, text_pdf, tmp_path):
@@ -457,12 +480,17 @@ def test_thumbnail_scroll_click_and_reload_for_long_pdf(window, tmp_path):
     assert len(tab.thumbs.cache) <= 72
 
 
-def test_document_notices_follow_original_after_edit_save_undo(window, tmp_path):
+@pytest.mark.parametrize("restricted", [False, True])
+def test_document_notices_follow_original_after_edit_save_undo(window, tmp_path, restricted):
     from test_document_info import add_pdfa, add_signature
+    assert not window.current.notice.isVisible()
     writer = PdfWriter()
     writer.add_blank_page(400, 600)
-    add_pdfa(writer)
+    if not restricted:
+        add_pdfa(writer)
     add_signature(writer)
+    if restricted:
+        writer.encrypt("", owner_password="owner-secret")
     source = tmp_path / "declared-and-signed.pdf"
     writer.write(source)
     window.open_pdf(source)
@@ -470,9 +498,16 @@ def test_document_notices_follow_original_after_edit_save_undo(window, tmp_path)
     assert tab.notice.isVisible()
     QTest.qWait(25)
     assert tab.notice.height() <= 64
-    assert "PDF/A-2b dichiarato" in tab.notice.text.text()
+    if not restricted:
+        assert "PDF/A-2b dichiarato" in tab.notice.text.text()
     assert "1 firma digitale" in tab.notice.text.text()
     assert "validità non verificata" in tab.notice.text.text()
+    if restricted:
+        assert "Modifiche disabilitate" in tab.notice.text.text()
+        assert "sola lettura" in tab.notice.text.text()
+        assert not window.a_rotate.isEnabled()
+        return
+    assert "Modifiche disabilitate" not in tab.notice.text.text()
     window._edit("rotate", 0, 90)
     assert "PDF modificato" in tab.notice.text.text()
     assert "conformità da verificare" in tab.notice.text.text()
@@ -671,6 +706,7 @@ def test_encrypted_metadata_inspector_is_readonly(window, tmp_path, monkeypatch)
     window.open_pdf(source)
     tab = window.current
     assert tab.editor.encrypted and window.a_info.isEnabled()
+    assert tab.notice.isVisible() and "sola lettura" in tab.notice.text.text()
     wait_for(lambda: 0 in tab.viewer.vectors.cache, timeout=10000)
     assert tab.viewer.vectors.password == "secret"
     dialog = PropertiesDialog(tab.editor, lambda values: tab.apply_edit("update_metadata", values), window)
@@ -680,6 +716,41 @@ def test_encrypted_metadata_inspector_is_readonly(window, tmp_path, monkeypatch)
     assert "sola lettura" in dialog.warning.text()
     dialog.reject()
     dialog.deleteLater()
+
+
+@pytest.mark.parametrize("algorithm", ["RC4-128", "AES-128", "AES-256"])
+def test_modify_restricted_pdf_opens_without_password_prompt(window, text_pdf, tmp_path, monkeypatch, algorithm):
+    from pypdf.constants import UserAccessPermissions
+    source = tmp_path / "modify-restricted.pdf"
+    writer = PdfWriter(clone_from=text_pdf)
+    writer.add_metadata({"/Title": "Restricted document"})
+    writer.encrypt("", owner_password="owner-secret", algorithm=algorithm,
+                   permissions_flag=UserAccessPermissions.PRINT | UserAccessPermissions.EXTRACT)
+    writer.write(source)
+    original = source.read_bytes()
+    monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: pytest.fail("A reading password was requested"))
+
+    window.open_pdf(source)
+    tab = window.current
+    assert tab.editor.source == source.resolve()
+    assert tab.editor.encrypted and not tab.viewer.editable
+    assert tab.pdf.status() == QPdfDocument.Status.Ready and tab.count == 3
+    assert "Alpha beta PDF page 1" in tab.pdf.getAllText(0).text()
+    wait_for(lambda: 0 in tab.viewer.vectors.cache, timeout=10000)
+    assert not tab.viewer.vectors.password
+    assert window.document_state.text() == "Sola lettura"
+    assert tab.notice.isVisible()
+    assert "Modifiche disabilitate" in tab.notice.text.text()
+    assert "sola lettura" in tab.notice.text.text()
+    assert "salvataggio sono disabilitati" in tab.notice.toolTip()
+    assert tab.notice.height() <= 64
+    for action in (window.a_save_current, window.a_save, window.a_rotate, window.a_note,
+                   window.a_export_docx, window.a_ocr):
+        assert not action.isEnabled()
+    assert window.a_info.isEnabled()
+    assert tab.editor.metadata().values["/Title"] == "Restricted document"
+    assert not tab.editor.metadata().editable
+    assert source.read_bytes() == original
 
 
 def test_page_number_remains_visible_and_accepts_keyboard_navigation(window):

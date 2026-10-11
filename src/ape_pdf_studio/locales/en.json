@@ -551,5 +551,22 @@
   "Impossibile aprire il browser. Riprova.": "Unable to open the browser. Try again.",
   "GitHub ha limitato le richieste. Riprova più tardi.": "GitHub has limited requests. Try again later.",
   "Controllo aggiornamenti non riuscito (HTTP {0}).": "Update check failed (HTTP {0}).",
-  "La risposta di GitHub non contiene una versione stabile valida.": "GitHub's response does not contain a valid stable version."
+  "La risposta di GitHub non contiene una versione stabile valida.": "GitHub's response does not contain a valid stable version.",
+  "Modifiche disabilitate · documento aperto in sola lettura": "Editing disabled · document opened read-only",
+  "Il documento è protetto. Le modifiche e il salvataggio sono disabilitati.": "The document is protected. Editing and saving are disabled.",
+  "Produttore": "Producer",
+  "Data di creazione": "Creation date",
+  "Data di modifica": "Modification date",
+  "Versione PDF": "PDF version",
+  "Non dichiarato": "Not declared",
+  "Firme digitali": "Digital signatures",
+  "Protezione": "Protection",
+  "Nessuna cifratura": "No encryption",
+  "Modifica contenuto": "Content editing",
+  "Annotazioni": "Annotations",
+  "Copia del testo": "Text copying",
+  "Consentita": "Allowed",
+  "Non consentita": "Not allowed",
+  "Differenze tra metadati Info e XMP.": "Differences between Info and XMP metadata.",
+  "Avvisi": "Notices"
 }

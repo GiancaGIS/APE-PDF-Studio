@@ -130,6 +130,20 @@ def test_encrypted_active_content_is_checked_after_password(tmp_path):
         PDFEditor(source, password="secret")
 
 
+@pytest.mark.parametrize("algorithm", ["RC4-128", "AES-128", "AES-256"])
+@pytest.mark.parametrize("kind", ["/JavaScript", "/Launch"])
+def test_owner_password_only_pdf_still_blocks_active_content(tmp_path, monkeypatch, algorithm, kind):
+    def change(writer):
+        writer.root_object[NameObject("/OpenAction")] = writer._add_object(action(kind))
+        writer.encrypt("", owner_password="owner-secret", algorithm=algorithm)
+    source = write_pdf(tmp_path, change)
+    original = source.read_bytes()
+    monkeypatch.setattr("ape_pdf_studio.core.editor.PdfReader", lambda *a, **k: pytest.fail("Unsafe main process parse"))
+    with pytest.raises(PDFSecurityError):
+        PDFEditor(source)
+    assert source.read_bytes() == original
+
+
 def test_incoming_active_pdf_does_not_change_history_or_source(tmp_path):
     source = write_pdf(tmp_path, filename="original.pdf")
     incoming = write_pdf(tmp_path, lambda w: w.pages[0].update({NameObject("/AA"): DictionaryObject({NameObject("/O"): w._add_object(action("/Launch"))})}), filename="incoming.pdf")

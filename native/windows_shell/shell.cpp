@@ -4,6 +4,9 @@
 #include <windows.h>
 #include <shobjidl.h>
 #include <thumbcache.h>
+#include <shellapi.h>
+#include <commctrl.h>
+#include <functional>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -83,7 +86,8 @@ bool transfer(HANDLE pipe, BYTE* buffer, size_t length, bool write) {
     }
     return true;
 }
-bool render(const std::vector<BYTE>& pdf, UINT edge, UINT page, const std::shared_ptr<RenderState>& state, Image& image) {
+bool runWorker(const std::vector<BYTE>& pdf, const DWORD (&request)[4],
+    const std::shared_ptr<RenderState>& state, const std::function<bool(HANDLE)>& receive) {
     if (state->cancelled || pdf.empty() || pdf.size() > maxBytes) return false;
     wchar_t path[32768];
     DWORD length = GetModuleFileNameW(module, path, ARRAYSIZE(path));
@@ -149,28 +153,30 @@ bool render(const std::vector<BYTE>& pdf, UINT edge, UINT page, const std::share
     ResumeThread(process.hThread);
     CloseHandle(inputRead.value); inputRead.value = nullptr;
     CloseHandle(outputWrite.value); outputWrite.value = nullptr;
-    DWORD request[] = {0x31525041, std::clamp(edge, 1u, 2048u), page, static_cast<DWORD>(pdf.size())}; // APR1
-    bool ok = transfer(inputWrite.value, reinterpret_cast<BYTE*>(request), sizeof(request), true) &&
+    bool ok = transfer(inputWrite.value, reinterpret_cast<BYTE*>(const_cast<DWORD*>(request)), sizeof(request), true) &&
         transfer(inputWrite.value, const_cast<BYTE*>(pdf.data()), pdf.size(), true);
     CloseHandle(inputWrite.value); inputWrite.value = nullptr;
-    DWORD response[5]{};
-    ok = ok && transfer(outputRead.value, reinterpret_cast<BYTE*>(response), sizeof(response), false);
-    ok = ok && response[0] == 0x31455041 && response[1] && response[2] && response[1] <= request[1] &&
-        response[2] <= request[1] && response[3] && response[3] <= 3000 && response[4] == page && page < response[3];
-    if (ok) {
-        try {
-            image.pixels.resize(static_cast<size_t>(response[1]) * response[2] * 4);
-            ok = transfer(outputRead.value, image.pixels.data(), image.pixels.size(), false);
-        } catch (...) { ok = false; }
-    }
+    try { ok = ok && receive(outputRead.value); } catch (...) { ok = false; }
     if (!ok) TerminateJobObject(job.value, 1);
     watchdog.join();
     DWORD exitCode = 1;
     GetExitCodeProcess(process.hProcess, &exitCode);
-    if (diagnostics() && (!ok || exitCode)) std::fprintf(stderr, "Worker exit=%lu protocol=%lu/%lu/%lu ok=%d cancelled=%d\n", exitCode, response[0], response[1], response[2], ok ? 1 : 0, state->cancelled ? 1 : 0);
+    if (diagnostics() && (!ok || exitCode)) std::fprintf(stderr, "Worker exit=%lu ok=%d cancelled=%d\n", exitCode, ok ? 1 : 0, state->cancelled ? 1 : 0);
     if (!ok || exitCode || state->cancelled) return false;
-    image.width = response[1]; image.height = response[2]; image.pages = response[3]; image.index = page;
     return true;
+}
+bool render(const std::vector<BYTE>& pdf, UINT edge, UINT page, const std::shared_ptr<RenderState>& state, Image& image) {
+    DWORD request[] = {0x31525041, std::clamp(edge, 1u, 2048u), page, static_cast<DWORD>(pdf.size())}; // APR1
+    return runWorker(pdf, request, state, [&](HANDLE pipe) {
+        DWORD response[5]{};
+        if (!transfer(pipe, reinterpret_cast<BYTE*>(response), sizeof(response), false) ||
+            response[0] != 0x31455041 || !response[1] || !response[2] || response[1] > request[1] ||
+            response[2] > request[1] || !response[3] || response[3] > 3000 || response[4] != page || page >= response[3]) return false;
+        image.pixels.resize(static_cast<size_t>(response[1]) * response[2] * 4);
+        if (!transfer(pipe, image.pixels.data(), image.pixels.size(), false)) return false;
+        image.width = response[1]; image.height = response[2]; image.pages = response[3]; image.index = page;
+        return true;
+    });
 }
 void CALLBACK previewWork(PTP_CALLBACK_INSTANCE instance, void* context) {
     std::unique_ptr<PreviewWork> work(static_cast<PreviewWork*>(context));
@@ -403,10 +409,11 @@ public:
         if (font) DeleteObject(font); font = replacement; if (window) InvalidateRect(window, nullptr, TRUE); return S_OK;
     }
 };
+#include "properties.h"
 class Factory final : public IClassFactory {
-    std::atomic<ULONG> refs{1}; bool thumbnail;
+    std::atomic<ULONG> refs{1}; CLSID kind;
 public:
-    explicit Factory(bool value) : thumbnail(value) { ++objects; }
+    explicit Factory(REFCLSID value) : kind(value) { ++objects; }
     ~Factory() { --objects; }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** output) override {
         if (!output) return E_POINTER; *output = nullptr;
@@ -417,7 +424,12 @@ public:
     ULONG STDMETHODCALLTYPE Release() override { ULONG count = --refs; if (!count) delete this; return count; }
     HRESULT STDMETHODCALLTYPE CreateInstance(IUnknown* outer, REFIID iid, void** output) override {
         if (!output) return E_POINTER; *output = nullptr; if (outer) return CLASS_E_NOAGGREGATION;
-        try { auto handler = new Handler(thumbnail); HRESULT hr = handler->QueryInterface(iid, output); handler->Release(); return hr; }
+        try {
+            if (kind == CLSID_APEMetadata) {
+                auto handler = new PropertyHandler(); HRESULT hr = handler->QueryInterface(iid, output); handler->Release(); return hr;
+            }
+            auto handler = new Handler(kind == CLSID_APEThumbnail); HRESULT hr = handler->QueryInterface(iid, output); handler->Release(); return hr;
+        }
         catch (...) { return E_OUTOFMEMORY; }
     }
     HRESULT STDMETHODCALLTYPE LockServer(BOOL lock) override { if (lock) ++objects; else --objects; return S_OK; }
@@ -425,8 +437,8 @@ public:
 } // namespace
 extern "C" HRESULT __stdcall DllGetClassObject(REFCLSID clsid, REFIID iid, void** output) {
     if (!output) return E_POINTER; *output = nullptr;
-    if (clsid != CLSID_APEThumbnail && clsid != CLSID_APEPreview) return CLASS_E_CLASSNOTAVAILABLE;
-    try { auto factory = new Factory(clsid == CLSID_APEThumbnail); HRESULT hr = factory->QueryInterface(iid, output); factory->Release(); return hr; }
+    if (clsid != CLSID_APEThumbnail && clsid != CLSID_APEPreview && clsid != CLSID_APEMetadata) return CLASS_E_CLASSNOTAVAILABLE;
+    try { auto factory = new Factory(clsid); HRESULT hr = factory->QueryInterface(iid, output); factory->Release(); return hr; }
     catch (...) { return E_OUTOFMEMORY; }
 }
 extern "C" HRESULT __stdcall DllCanUnloadNow() {

@@ -126,7 +126,7 @@ Per compilare da terminale, puoi personalizzare le definizioni:
 
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-  "/DAppVersion=1.0.0" `
+  "/DAppVersion=1.0.1" `
   "/DDistDir=C:\Build\APEPDFStudio" `
   "/DOutputDir=C:\Build\Installers" `
   "/DLicensePath=C:\Build\LICENSE" `
@@ -141,22 +141,34 @@ Esempi da eseguire sul PC di destinazione:
 
 ```powershell
 # Locale, cartella personalizzata
-.\APEPDFStudio-1.0.0-Setup-x64.exe /CURRENTUSER /DIR="D:\Applicazioni\APE PDF Studio"
+.\APEPDFStudio-1.0.1-Setup-x64.exe /CURRENTUSER /DIR="D:\Applicazioni\APE PDF Studio"
 
 # Program Files, tutti gli utenti (richiede amministratore)
-.\APEPDFStudio-1.0.0-Setup-x64.exe /ALLUSERS
+.\APEPDFStudio-1.0.1-Setup-x64.exe /ALLUSERS
 
 # Installazione locale automatizzata
-.\APEPDFStudio-1.0.0-Setup-x64.exe /CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+.\APEPDFStudio-1.0.1-Setup-x64.exe /CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
 
 # Registra anche APE tra i lettori PDF (la scelta predefinita resta all'utente)
-.\APEPDFStudio-1.0.0-Setup-x64.exe /CURRENTUSER /TASKS="pdfassociation"
+.\APEPDFStudio-1.0.1-Setup-x64.exe /CURRENTUSER /TASKS="pdfassociation"
 
 # Rende disponibile ape-pdf-cli nei nuovi terminali
-.\APEPDFStudio-1.0.0-Setup-x64.exe /CURRENTUSER /TASKS="clipath"
+.\APEPDFStudio-1.0.1-Setup-x64.exe /CURRENTUSER /TASKS="clipath"
 ```
 
 La modalita silenziosa omette le pagine interattive, compresa la schermata della licenza; usala solo quando l'accettazione e gia gestita dalla tua procedura di distribuzione. I [parametri Inno Setup](https://jrsoftware.org/ishelp/topic_setupcmdline.htm) consentono anche `/LOG="percorso.log"` e `/TASKS="desktopicon,clipath,pdfassociation,pdfthumbnails,pdfpreview"`. La modalità silenziosa registra i PDF se `pdfassociation` è selezionato, ma non apre le impostazioni Windows e non cambia automaticamente il lettore predefinito. `/TASKS=""` deseleziona tutte le opzioni in una nuova installazione.
+
+## Scheda Metadati PDF nelle Proprietà di Windows
+
+Seleziona **Aggiungi la scheda Metadati PDF alle Proprietà dei file PDF (sola lettura)** nella pagina delle opzioni dell'installer. L'opzione è indipendente da miniature, anteprima e associazione del lettore PDF. È disponibile per l'installazione corrente o per tutti gli utenti, tramite lo stesso ambito scelto per il programma.
+
+In Esplora file seleziona un singolo PDF, poi **tasto destro → Proprietà → Metadati PDF**. La scheda mostra titolo, autore, oggetto, parole chiave, applicazione creatrice, produttore, date, versione, pagine, identificazione PDF/A, presenza di firme e restrizioni. Selezionando una riga puoi leggere e copiare il valore nel riquadro sottostante. **Apri in APE PDF Studio** apre il documento nell'app per le operazioni disponibili.
+
+La scheda consulta il file senza modificarlo. I PDF con sole restrizioni sono leggibili senza password; quando serve una password di apertura, la scheda invita ad aprire il documento nell'app. L'identificazione PDF/A e la presenza di firme non costituiscono una verifica della conformità o della validità crittografica. La lingua della scheda segue quella di Windows (italiano, inglese, spagnolo o francese).
+
+L'analisi avviene nel worker separato con controllo preventivo, limite di memoria e timeout. La pagina nativa viene aggiunta tramite [IShellPropSheetExt](https://learn.microsoft.com/en-us/windows/win32/shell/how-to-register-and-implement-a-property-sheet-handler-for-a-file-type). L'installer registra una chiave dedicata sotto `SystemFileAssociations\.pdf\ShellEx\PropertySheetHandlers` e la rimuove in disinstallazione.
+
+Per installazioni automatizzate usa `/TASKS="pdfmetadata"`, eventualmente insieme alle altre opzioni. Dopo l'aggiornamento chiudi e riapri la finestra Proprietà; Windows potrebbe richiedere un riavvio se una versione precedente della DLL è ancora in uso.
 
 ## Verifica del pacchetto
 

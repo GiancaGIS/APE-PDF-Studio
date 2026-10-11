@@ -5,6 +5,7 @@
 #define AppCapabilities "Software\GiancaGIS\APE PDF Studio\Capabilities"
 #define ThumbnailGuid "93F94D65-3611-4F88-9485-EFEF3A2E1B57"
 #define PreviewGuid "DDBA68CE-5289-4A59-A0A9-F1A3E0267870"
+#define MetadataGuid "4CB5B991-7B55-4922-A4AF-23B7964F1D05"
 #define ProjectRoot AddBackslash(SourcePath) + ".."
 #define AppIcon ProjectRoot + "\src\ape_pdf_studio\assets\app-icon.ico"
 #ifndef DistDir
@@ -82,6 +83,8 @@ italian.PdfThumbnails=Mostra miniature dei PDF in Esplora file (sostituisce il p
 english.PdfThumbnails=Show PDF thumbnails in File Explorer (replaces the current provider)
 italian.PdfPreview=Abilita il riquadro Anteprima dei PDF in Esplora file (sostituisce il provider corrente)
 english.PdfPreview=Enable the PDF preview pane in File Explorer (replaces the current provider)
+italian.PdfMetadata=Aggiungi la scheda Metadati PDF alle Proprietà dei file PDF (sola lettura)
+english.PdfMetadata=Add the PDF metadata tab to PDF file Properties (read-only)
 italian.ExplorerIntegration=Integrazione con Esplora file:
 english.ExplorerIntegration=File Explorer integration:
 italian.CliPath=Aggiungi APE PDF Studio al PATH (comando ape-pdf-cli, riaprire il terminale)
@@ -95,6 +98,7 @@ Name: "clipath"; Description: "{cm:CliPath}"; GroupDescription: "{cm:CommandLine
 Name: "pdfassociation"; Description: "{cm:PdfAssociation}"; GroupDescription: "{cm:FileAssociations}"; Flags: unchecked
 Name: "pdfthumbnails"; Description: "{cm:PdfThumbnails}"; GroupDescription: "{cm:ExplorerIntegration}"; Flags: unchecked; Check: IsX64
 Name: "pdfpreview"; Description: "{cm:PdfPreview}"; GroupDescription: "{cm:ExplorerIntegration}"; Flags: unchecked; Check: IsX64
+Name: "pdfmetadata"; Description: "{cm:PdfMetadata}"; GroupDescription: "{cm:ExplorerIntegration}"; Flags: unchecked; Check: IsX64
 
 [InstallDelete]
 ; Remove only the former launchers and shortcuts when upgrading the same AppId.
@@ -143,6 +147,12 @@ Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\PreviewHandlers"; 
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"; ValueType: string; ValueName: "{{{#ThumbnailGuid}}"; ValueData: "APE PDF thumbnail provider"; Flags: uninsdeletevalue; Tasks: pdfthumbnails; Check: IsX64
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"; ValueType: string; ValueName: "{{{#PreviewGuid}}"; ValueData: "APE PDF preview handler"; Flags: uninsdeletevalue; Tasks: pdfpreview; Check: IsX64
 ; Shared ShellEx slots are backed up/restored by [Code], not blindly deleted.
+; A dedicated property-sheet CLSID adds a page regardless of the PDF reader.
+Root: HKA; Subkey: "Software\Classes\CLSID\{{{#MetadataGuid}}"; ValueType: string; ValueName: ""; ValueData: "APE PDF metadata property sheet"; Flags: uninsdeletekey; Tasks: pdfmetadata; Check: IsX64
+Root: HKA; Subkey: "Software\Classes\CLSID\{{{#MetadataGuid}}\InprocServer32"; ValueType: string; ValueName: ""; ValueData: "{app}\APEPDFShell.dll"; Tasks: pdfmetadata; Check: IsX64
+Root: HKA; Subkey: "Software\Classes\CLSID\{{{#MetadataGuid}}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"; Tasks: pdfmetadata; Check: IsX64
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf\ShellEx\PropertySheetHandlers\{{{#MetadataGuid}}"; ValueType: string; ValueName: ""; ValueData: "{{{#MetadataGuid}}"; Flags: uninsdeletekey; Tasks: pdfmetadata; Check: IsX64
+Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"; ValueType: string; ValueName: "{{{#MetadataGuid}}"; ValueData: "APE PDF metadata property sheet"; Flags: uninsdeletevalue; Tasks: pdfmetadata; Check: IsX64
 Root: HKA; Subkey: "Software\Classes\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; ValueType: string; ValueName: ""; ValueData: "{{{#ThumbnailGuid}}"; Tasks: pdfthumbnails; Check: IsX64
 Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.pdf\ShellEx\{{e357fccd-a995-4576-b01f-234630154e96}"; ValueType: string; ValueName: ""; ValueData: "{{{#ThumbnailGuid}}"; Tasks: pdfthumbnails; Check: IsX64
 Root: HKA; Subkey: "Software\Classes\.pdf\ShellEx\{{8895b1c6-b41f-4c1c-a562-0d564250836f}"; ValueType: string; ValueName: ""; ValueData: "{{{#PreviewGuid}}"; Tasks: pdfpreview; Check: IsX64

@@ -109,6 +109,36 @@ def main():
             raise RuntimeError("Il worker non rileva le azioni PDF bloccate.")
         passed("Controllo PDF e blocco contenuti attivi")
 
+        # Test bundled code, not only the source interpreter: an outdated
+        # security worker incorrectly asks for a password on owner-only PDFs.
+        restricted_sources = []
+        for algorithm in ("RC4-128", "AES-128", "AES-256"):
+            restricted = work / f"restricted-{algorithm}.pdf"
+            restricted_writer = PdfWriter(clone_from=source)
+            restricted_writer.encrypt("", owner_password="owner-secret", algorithm=algorithm)
+            restricted_writer.write(restricted)
+            restricted_report = json.loads(run("security", request={"path": str(restricted), "password": None}))
+            if restricted_report.get("status") != "checked" or restricted_report.get("findings"):
+                raise RuntimeError(f"Il worker chiede una password o non verifica il PDF con sola protezione proprietario ({algorithm}).")
+            restricted_sources.append(restricted)
+
+            locked = work / f"opening-password-{algorithm}.pdf"
+            locked_writer = PdfWriter(clone_from=source)
+            locked_writer.encrypt("read-secret", owner_password="owner-secret", algorithm=algorithm)
+            locked_writer.write(locked)
+            if json.loads(run("security", request={"path": str(locked)})).get("status") != "password":
+                raise RuntimeError(f"Il worker non richiede la password di apertura ({algorithm}).")
+
+            restricted_unsafe = work / f"restricted-unsafe-{algorithm}.pdf"
+            restricted_unsafe_writer = PdfWriter(clone_from=unsafe)
+            restricted_unsafe_writer.encrypt("", owner_password="owner-secret", algorithm=algorithm)
+            restricted_unsafe_writer.write(restricted_unsafe)
+            active_report = json.loads(run("security", request={"path": str(restricted_unsafe)}))
+            if not (active_report.get("status") == "blocked" or (
+                    active_report.get("status") == "checked" and "launch" in active_report.get("findings", []))):
+                raise RuntimeError(f"Il worker non controlla i contenuti attivi dei PDF protetti solo da modifica ({algorithm}).")
+        passed("PDF con sola protezione proprietario: apertura senza password, password di lettura e contenuti attivi (RC4/AES)")
+
         def run_cli(*arguments, expected=0):
             result = subprocess.run([str(cli), *map(str, arguments)], cwd=work,
                 env={**os.environ, "PYTHONPATH": str(work), "APE_UI_LANGUAGE": "en"},
@@ -122,6 +152,12 @@ def main():
         help_result = run_cli("--help")
         if b"ape-pdf-cli" not in help_result.stdout or b"rotate" not in help_result.stdout:
             raise RuntimeError("Help CLI mancante sulla console.")
+        for restricted in restricted_sources:
+            run_cli(restricted, "info")
+            restricted_output = work / (restricted.stem + "-edited.pdf")
+            run_cli(restricted, "rotate", "1", "-o", restricted_output, expected=2)
+            if restricted_output.exists():
+                raise RuntimeError("La CLI consente modifiche a un PDF cifrato in sola lettura.")
         cli_source = work / "CLI con spazi e accenti è.pdf"
         shutil.copyfile(source, cli_source)
         info = run_cli(cli_source, "info")
@@ -155,11 +191,11 @@ def main():
                 page.draw_rect(page.rect, color=color, fill=color)
             document.save(shell_source)
 
-        def shell_check(document, mode=None, dll=shell_dll):
+        def shell_check(document, mode=None, dll=shell_dll, environment=None):
             command = [str(args.shell_host.resolve()), str(dll), str(document)]
             if mode:
                 command.append(mode)
-            result = subprocess.run(command, cwd=work, capture_output=True, timeout=65,
+            result = subprocess.run(command, cwd=work, capture_output=True, timeout=65, env=environment,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if result.returncode:
                 raise RuntimeError("Verifica COM: " + result.stderr.decode(errors="replace"))
@@ -181,6 +217,27 @@ def main():
         shutil.copyfile(args.shell_host, stalled / "APEPDFWorker.exe")
         shell_check(shell_source, "--reject", dll=stalled / shell_dll.name)
         passed("COM miniature e anteprima: pagine, resize, annullamento, low integrity, PDF bloccati e timeout")
+
+        metadata_source = work / "Metadati con spazi e accenti è.pdf"
+        metadata_writer = PdfWriter(clone_from=PdfReader(source))
+        metadata_writer.add_metadata({"/Title": "APE metadata smoke: è 日本語 😀", "/Author": "GiancaGIS"})
+        metadata_writer.write(metadata_source)
+        original_metadata_pdf = metadata_source.read_bytes()
+        shell_check(metadata_source, "--metadata")
+        shell_check(metadata_source, "--metadata-cancel")
+        shell_check(protected, "--metadata-password")
+        shell_check(unsafe, "--metadata-blocked")
+        shell_check(malformed, "--metadata-blocked")
+        restricted_metadata = work / "Metadati con restrizioni.pdf"
+        metadata_writer.encrypt("", owner_password="owner-secret", algorithm="AES-256")
+        metadata_writer.write(restricted_metadata)
+        shell_check(restricted_metadata, "--metadata")
+        shell_check(metadata_source, "--metadata-blocked", dll=stalled / shell_dll.name,
+                    environment={**os.environ, "APE_FAKE_METADATA_RESPONSE": "1"})
+        shell_check(metadata_source, "--metadata-blocked", dll=stalled / shell_dll.name)
+        if metadata_source.read_bytes() != original_metadata_pdf:
+            raise RuntimeError("La scheda Metadati PDF ha modificato il documento.")
+        passed("COM Metadati PDF: scheda nativa, Unicode, sola lettura, restrizioni, password, annullamento e risposte invalide")
 
         broken = work / "broken.pdf"
         broken.write_bytes(b"%PDF-1.7\nbroken")

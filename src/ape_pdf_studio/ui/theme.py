@@ -103,6 +103,25 @@ QTabBar { background: $window; }
 QTabBar::tab { background: $window; color: $muted; padding: 8px 12px; margin-right: 3px; border-top-left-radius: 7px; border-top-right-radius: 7px; min-width: 70px; }
 QTabBar::tab:selected { background: white; color: $accent; border-bottom: 2px solid $strong_border; }
 QTabBar::tab:hover { background: $selected; }
+QTabWidget#DocumentTabs::pane { background: white; }
+QTabBar#DocumentTabBar { background: $canvas; border-bottom: 1px solid $border; }
+QTabBar#DocumentTabBar::tab {
+    background: $window; color: $muted; font-weight: 600;
+    min-width: 120px; max-width: 260px; padding: 8px 12px;
+    margin: 6px 3px 0px 3px;
+    border: 1px solid $border; border-bottom: 3px solid transparent;
+    border-top-left-radius: 9px; border-top-right-radius: 9px;
+}
+QTabBar#DocumentTabBar::tab:first { margin-left: 8px; }
+QTabBar#DocumentTabBar::tab:hover { background: $selected; color: $accent_dark; border-color: $strong_border; border-bottom-color: transparent; }
+QTabBar#DocumentTabBar::tab:selected { background: white; color: $accent_dark; border-color: $strong_border; border-bottom-color: $accent; }
+QTabBar#DocumentTabBar::scroller { width: 64px; }
+QTabBar#DocumentTabBar QToolButton[tabScroll="true"] { background: $canvas; color: $accent; border: 1px solid $border; border-radius: 6px; padding: 0; margin: 7px 2px; }
+QTabBar#DocumentTabBar QToolButton[tabScroll="true"]:hover { background: $selected; border-color: $strong_border; }
+QTabBar#DocumentTabBar QToolButton[tabScroll="true"]:disabled { color: $disabled_text; }
+QToolButton#DocumentTabClose { background: transparent; border: 0; border-radius: 6px; padding: 0; }
+QToolButton#DocumentTabClose:hover { background: $pressed; }
+QToolButton#DocumentTabClose:pressed { background: $strong_border; }
 QTabWidget#Sidebar QTabBar::tab { min-width: 0; padding: 7px 8px; font-size: 11px; }
 QListWidget, QTreeView, QListView { background: $sidebar; border: 0; outline: 0; }
 QTreeView::item, QListView::item { padding: 5px 4px; }

@@ -30,6 +30,8 @@ class DocumentNotice(QFrame):
         info = self.editor.document_info
         modified = self.editor.modified_from_original
         parts = []
+        if self.editor.encrypted:
+            parts.append(tr("Modifiche disabilitate · documento aperto in sola lettura"))
         if info.pdfa:
             parts.append(tr("{0} nell'originale · conformità da verificare", info.pdfa) if modified else tr('{0} dichiarato', info.pdfa))
         if info.signatures:
@@ -44,10 +46,13 @@ class DocumentNotice(QFrame):
         if "external_links" in security.findings:
             parts.append(tr("Collegamenti esterni · apertura disabilitata"))
         self.text.setText("   •   ".join(parts))
-        self.setToolTip(tr("PDF/A: identificazione dai metadati XMP, conformità non validata.\n"
-                        "Firme: presenza di dati di firma, validità crittografica non verificata.\n"
-                        "Le modifiche possono invalidare le firme e la conformità PDF/A.\n"
-                        "Controllo preventivo attivo: dettagli nella scheda Sicurezza. Non è una scansione antivirus."))
+        tooltip = tr("PDF/A: identificazione dai metadati XMP, conformità non validata.\n"
+                     "Firme: presenza di dati di firma, validità crittografica non verificata.\n"
+                     "Le modifiche possono invalidare le firme e la conformità PDF/A.\n"
+                     "Controllo preventivo attivo: dettagli nella scheda Sicurezza. Non è una scansione antivirus.")
+        if self.editor.encrypted:
+            tooltip = tr("Il documento è protetto. Le modifiche e il salvataggio sono disabilitati.") + "\n" + tooltip
+        self.setToolTip(tooltip)
         self.setProperty("modified", bool(modified))
         self.setProperty("securityWarning", bool(security.findings))
         # Descendant selectors must be refreshed too when the warning changes.

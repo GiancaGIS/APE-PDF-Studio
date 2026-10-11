@@ -72,7 +72,10 @@ def main():
             raise PDFSecurityError(tr("dimensione superiore al limite di 256 MiB."))
         with PdfReader(source) as reader:
             if reader.is_encrypted:
-                if request.get("password") is None or not reader.decrypt(request.get("password") or ""):
+                # Permissions-only encryption has an empty user password.
+                # Being encrypted alone does not imply a password is required
+                # to read the PDF; inspect it after successful authentication.
+                if not reader.decrypt(request.get("password") or ""):
                     return {"status": "password"}
             findings = inspect_reader(reader)
         return {"status": "checked", "findings": findings, "memory_limited": memory_limited}

@@ -6,10 +6,17 @@
 #include <shlwapi.h>
 #include <thumbcache.h>
 #include <sddl.h>
+#include <commctrl.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <atomic>
+#include <string>
+#include <cstring>
 #include <vector>
 #include <cstdio>
 #include <stdexcept>
 #include "shell_ids.h"
+#pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='amd64' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 template<class T> struct Com {
     T* value = nullptr;
@@ -44,11 +51,28 @@ DWORD snapshot(HWND window) {
     SelectObject(dc, old); DeleteDC(dc); DeleteObject(bitmap);
     return pixel;
 }
+#include "metadata_smoke.h"
 int wmain(int argc, wchar_t** argv) {
     // A copy of this test host can stand in for an intentionally stalled helper.
-    if (argc == 2 && wcscmp(argv[1], L"shell") == 0) { Sleep(INFINITE); return 1; }
+    if (argc == 2 && wcscmp(argv[1], L"shell") == 0) {
+        wchar_t fake[2];
+        if (GetEnvironmentVariableW(L"APE_FAKE_METADATA_RESPONSE", fake, ARRAYSIZE(fake))) {
+            BYTE buffer[65536]; DWORD got;
+            while (ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &got, nullptr) && got) {}
+            DWORD invalid[] = {0x314d5041, 0, 17, 0xffffffff, 0}, written;
+            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), invalid, sizeof(invalid), &written, nullptr); return 0;
+        }
+        Sleep(INFINITE); return 1;
+    }
     if (argc < 3) return 2;
     bool reject = argc > 3 && wcscmp(argv[3], L"--reject") == 0;
+    bool metadata = argc > 3 && wcsncmp(argv[3], L"--metadata", 10) == 0;
+    HDESK originalDesktop = GetThreadDesktop(GetCurrentThreadId()), metadataDesktop = nullptr;
+    if (metadata) {
+        std::wstring name = L"APE.MetadataSmoke." + std::to_wstring(GetCurrentProcessId());
+        metadataDesktop = CreateDesktopW(name.c_str(), nullptr, nullptr, 0, GENERIC_ALL, nullptr);
+        if (!metadataDesktop || !SetThreadDesktop(metadataDesktop)) { if (metadataDesktop) CloseDesktop(metadataDesktop); return 4; }
+    }
     if (argc > 3 && wcscmp(argv[3], L"--low") == 0) {
         HANDLE token = nullptr; PSID sid = nullptr;
         if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_DEFAULT | TOKEN_QUERY, &token)) return 4;
@@ -59,7 +83,7 @@ int wmain(int argc, wchar_t** argv) {
         LocalFree(sid); CloseHandle(token); if (!lowered) return 4;
     }
     HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    if (FAILED(initialized)) return 3;
+    if (FAILED(initialized)) { if (metadataDesktop) { SetThreadDesktop(originalDesktop); CloseDesktop(metadataDesktop); } return 3; }
     int result = 0;
     HMODULE dll = LoadLibraryExW(argv[1], nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     HWND parent = nullptr;
@@ -68,6 +92,10 @@ int wmain(int argc, wchar_t** argv) {
         auto factoryEntry = reinterpret_cast<HRESULT(__stdcall*)(REFCLSID, REFIID, void**)>(GetProcAddress(dll, "DllGetClassObject"));
         auto unloadEntry = reinterpret_cast<HRESULT(__stdcall*)()>(GetProcAddress(dll, "DllCanUnloadNow"));
         require(factoryEntry && unloadEntry, "COM exports");
+        if (metadata) {
+            metadataSmoke(factoryEntry, unloadEntry, argv[2], argv[3]);
+            std::puts("Metadata COM checks passed");
+        } else {
         HANDLE input = CreateFileW(argv[2], GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
         require(input != INVALID_HANDLE_VALUE, "open fixture");
         DWORD size = GetFileSize(input, nullptr), got = 0;
@@ -135,9 +163,12 @@ int wmain(int argc, wchar_t** argv) {
         while (unloadEntry() != S_OK && GetTickCount() - start < 20000) pump();
         require(unloadEntry() == S_OK, "COM objects and background jobs released");
         std::puts("Shell COM checks passed");
+        }
     } catch (const std::exception& error) { std::fprintf(stderr, "%s\n", error.what()); result = 1; }
     if (parent) DestroyWindow(parent);
     // The process ends on a failed test, so do not unload code still in use.
     if (!result && dll) FreeLibrary(dll);
-    CoUninitialize(); return result;
+    CoUninitialize();
+    if (metadataDesktop) { SetThreadDesktop(originalDesktop); CloseDesktop(metadataDesktop); }
+    return result;
 }

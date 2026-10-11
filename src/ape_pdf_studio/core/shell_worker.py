@@ -1,4 +1,4 @@
-"""Bounded stream-to-bitmap protocol for the Windows shell extension.
+"""Bounded bitmap/metadata protocols for the Windows shell extension.
 
 No filenames, temporary files, GUI, downloads or PDF actions are used here.
 """
@@ -56,12 +56,19 @@ def main() -> int:
     limit_memory()
     try:
         magic, edge, index, length = REQUEST.unpack(sys.stdin.buffer.read(REQUEST.size))
-        if magic != b"APR1" or not 0 < length <= MAX_FILE_BYTES:
+        if magic not in (b"APR1", b"APQ1") or not 0 < length <= MAX_FILE_BYTES:
+            return 1
+        if magic == b"APQ1" and (edge > 3 or index != 0):
             return 1
         data = sys.stdin.buffer.read(length)
         if len(data) != length:
             return 1
-        sys.stdout.buffer.write(render(data, edge, index))
+        if magic == b"APQ1":
+            from ape_pdf_studio.core.shell_metadata import metadata_reply
+            reply = metadata_reply(data, edge)
+        else:
+            reply = render(data, edge, index)
+        sys.stdout.buffer.write(reply)
         sys.stdout.buffer.flush()
         return 0
     except Exception:

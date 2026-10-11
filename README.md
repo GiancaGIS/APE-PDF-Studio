@@ -209,7 +209,7 @@ The original stays unchanged while you edit. Private copies and revisions live i
 
 **Save as** can target the original file, but overwriting requires confirmation and history retains the previous revision. Writes use a temporary file in the destination folder followed by `os.replace`. You cannot export over a file belonging to another open tab, or extract pages over the current document.
 
-Closing an edited document offers **Save**, **Discard**, and **Cancel**. Temporary revisions are not retained after closing. Password-protected PDFs can be opened read-only; editing and export are disabled.
+Closing an edited document offers **Save**, **Discard**, and **Cancel**. Temporary revisions are not retained after closing. Encrypted PDFs are opened read-only; editing and export are disabled. The app requests a password only when one is required to read the document. PDFs protected only against modification (an owner password with an empty opening/user password) open directly without a password prompt and retain their protection.
 
 ### Metadata
 
@@ -235,7 +235,7 @@ Structural analysis visits the catalog, pages, annotations, forms, references, a
 
 Generated edit revisions are checked before entering the undo history or renderer. This also enforces the page limit on merged documents. Stream checks inspect the stored bytes as well as any declared length; pypdf removes the `/Length` key during parsing. See the [security review](docs/security-review.md) for verification scope, dependency findings, and remaining risks.
 
-Embedded attachments and ordinary HTTP/HTTPS/email links are reported and not opened. Attachments may remain in saved PDFs; they are not stripped or disinfected. Signed, PDF/A-declared, and encrypted documents must also pass the check, with encrypted PDFs checked after receiving the password.
+Embedded attachments and ordinary HTTP/HTTPS/email links are reported and not opened. Attachments may remain in saved PDFs; they are not stripped or disinfected. Signed, PDF/A-declared, and encrypted documents must also pass the check. Encrypted PDFs are checked after successful authentication, using an empty password when the document permits opening without one.
 
 <details>
 <summary><strong>Input limits and rendering budgets</strong></summary>

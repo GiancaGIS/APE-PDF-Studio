@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QStackedWidget,
-    QTabWidget,
     QToolBar,
     QToolButton,
     QSizePolicy,
@@ -32,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from ..core.editor import PDFOperationError, PDFPasswordRequired, parse_page_range
 from .document_tab import DocumentTab
+from .document_tabs import DocumentTabs
 from .exports import DocxExportJob, export_page_image
 from .icons import application_icon, icon
 from .page_number import PageNumberEdit
@@ -67,10 +67,7 @@ class MainWindow(QMainWindow):
         self._ocr_tab = None
         self._page_context = None
 
-        self.tabs = QTabWidget()
-        self.tabs.setTabsClosable(True)
-        self.tabs.setMovable(True)
-        self.tabs.setDocumentMode(True)
+        self.tabs = DocumentTabs()
         self.tabs.currentChanged.connect(self._update_state)
         self.tabs.tabCloseRequested.connect(self.close_tab)
 
@@ -460,6 +457,7 @@ class MainWindow(QMainWindow):
             if not isinstance(window, MainWindow):
                 continue
             window.theme_name = self.theme_name
+            window.tabs.refresh_icons()
             for action in window.findChildren(QAction):
                 if glyph := action.property("glyph"):
                     action.setIcon(icon(glyph))
@@ -684,7 +682,8 @@ class MainWindow(QMainWindow):
         tab.search_changed.connect(
             lambda p, n, owner=tab: self._update_search_status(p, n) if self.current is owner else None
         )
-        index = self.tabs.addTab(tab, tab.title)
+        index = self.tabs.addTab(tab, icon("page"), tab.title)
+        self.tabs.setTabToolTip(index, str(tab.editor.output_path))
         self.tabs.setCurrentIndex(index)
         self.settings.setValue("recent/directory", str(path.parent))
         self._remember_file(path)
@@ -1092,12 +1091,12 @@ class MainWindow(QMainWindow):
     def about(self) -> None:
         QMessageBox.information(
             self, tr("Informazioni su APE PDF Studio"),
-            tr("APE PDF Studio {0}\n\n"
-            "Rendering: tracciati MuPDF / Qt SVG; compatibilità QtPdf (PDFium)\nEditing: pypdf\nInterfaccia: PySide6\n\n"
+            tr("APE PDF Studio {0}\n"
+            + "\n" + tr("Autore: {0}", "GiancaGIS")
+            + "\n" + "Copyright (C) 2026 GiancaGIS\n"
+            + "\n\n" + "Rendering: tracciati MuPDF / Qt SVG; compatibilità QtPdf (PDFium)\nEditing: pypdf\nInterfaccia: PySide6\n\n"
             "Operazioni non distruttive, cronologia Undo/Redo e salvataggio esplicito.\n"
             "Le firme digitali non vengono preservate dalle modifiche ai PDF.", __version__)
-            + "\n\n" + tr("Autore: {0}", "GiancaGIS")
-            + "\n" + "Copyright (C) 2026 GiancaGIS"
             + "\n\n" + tr("Licenza: GNU AGPLv3. Questo programma è distribuito senza garanzie.")
             + "\n" + "Qt/PySide6: LGPLv3 / GPL · PyMuPDF/MuPDF: AGPLv3"
             + "\n" + tr("Testi delle licenze e istruzioni per i sorgenti: Aiuto → Licenze e codice sorgente.")

@@ -70,9 +70,11 @@ try {
             Write-Host '[APE] Installo le dipendenze nell''ambiente di build...'
             & $PythonExe -m pip install -r (Join-Path $projectRoot 'requirements-release.txt')
             if ($LASTEXITCODE -ne 0) { throw 'Installazione dipendenze bloccate fallita.' }
-            & $PythonExe -m pip install --no-build-isolation --no-deps -e '.'
-            if ($LASTEXITCODE -ne 0) { throw 'Installazione dipendenze fallita.' }
         }
+        # Refresh application metadata even when third-party dependencies are
+        # already installed: copy_metadata must bundle the current version.
+        & $PythonExe -m pip install --no-index --no-build-isolation --no-deps --disable-pip-version-check -e '.'
+        if ($LASTEXITCODE -ne 0) { throw 'Preparazione metadati applicazione fallita.' }
         $env:APE_LICENSE_FILE = $LicenseFile
         $sourceArguments = @()
         if ($OfflineSources) { $sourceArguments += '--offline' }
