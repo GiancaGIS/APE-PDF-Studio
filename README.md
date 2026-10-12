@@ -36,6 +36,9 @@
 
 APE PDF Studio uses **PySide6** for the interface, **MuPDF / Qt SVG** for vector rendering, **QtPdf** for search, selection, and compatibility rendering, and **pypdf** for document edits, revisions, and saving.
 
+
+![main window](images/main_window.png)
+
 ## Quick start
 
 ### Windows
