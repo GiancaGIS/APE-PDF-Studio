@@ -29,6 +29,7 @@
 | --- | --- |
 | **Reading** | Open multiple PDFs in tabs, navigate with thumbnails and bookmarks, search the whole document, and select or copy text. |
 | **Editing** | Rotate, reorder, insert, delete, and extract pages; add notes, highlights, and underlines; replace supported existing text spans. |
+| **PDF forms** | Fill static AcroForm text, checkboxes, radio groups and choices; save editable fields and undo or redo changes. |
 | **Searchable scans** | Recognize Italian, English, or both with local OCR and an invisible text layer. |
 | **Exporting** | Save pages as PNG/JPEG or convert the complete PDF to an editable Word document. |
 | **Printing** | Preview paper size, scaling, margins, copies, and duplex options, or create a print-ready PDF copy. |
@@ -230,6 +231,32 @@ Detection does **not** validate certificates, cryptographic integrity, or timest
 
 After edits, the banner notes that signatures and declarations belong to the original and that compliance needs rechecking, even after saving. Undoing all changes restores the original notice. Page reconstruction can affect internal links, bookmarks, forms, and other complex structures; edits invalidate digital signatures. Use working copies for critical documents. Digital signing and secure redaction are not included.
 
+## Fillable PDF forms
+
+### Prepare a form from a flat PDF
+
+Use **Annotate → Prepare form…** or **Edit → Prepare form…** (**Annota → Prepara modulo…** in Italian). A review panel opens beside the page. Enter the pages to analyze (for example `1,3-5`, at most 50 per operation), then select **Detect fields**. The detector suggests text fields and checkboxes using empty rectangles, underlines and nearby text. Scanned pages also use bounded image analysis. Optional local OCR reads labels with already installed Italian/English models; no document is uploaded and this feature does not download models. Without models, geometric detection still works and fields receive editable generic names.
+
+Suggestions are highlighted directly on the page. Select a box to edit its unique name, label, type, multiline setting and dimensions. Drag a box to move it, or drag its lower-right handle to resize it. Choose **Draw text field** or **Draw checkbox** and drag on the page to add a missed field. Delete a suggestion with the panel button or **Delete** while the page is focused. **Esc** cancels an unfinished drawing. Blank table cells and decorative boxes can be false positives: review every suggestion.
+
+Select **Create fields…** and confirm to create standard, script-free AcroForm fields as one undoable edit. Close preparation, fill fields directly on the page, then **Save / Save as**. Closing preparation with uncreated suggestions asks whether to discard them. Existing fields and values, metadata and document structures are preserved; duplicate names, substantially overlapping boxes and stale revisions are rejected. Protected PDFs retain the read-only policy. This first version creates text fields and checkboxes; it does not infer radio groups, dropdown choices or automatic calculations.
+
+Try the flat [digital example](examples/modulo_da_preparare.pdf) and [scanned example](examples/modulo_da_preparare_scansione.pdf). Both intentionally start without interactive fields and can be regenerated with `python scripts/generate_form_preparation_example.py`.
+
+Analysis runs in a separate, cancellable worker with a 90-second deadline and the existing 768 MiB process memory limit where supported. Raster analysis is limited to 4 million pixels per page, and the result protocol is bounded to 2 MB. Suggestions alone do not modify the PDF; creation uses the existing checked revision and atomic save workflow. These limits are resource containment, not an operating-system sandbox.
+
+### Fill existing forms
+
+Open [`examples/modulo_compilabile.pdf`](examples/modulo_compilabile.pdf) to try text fields, multiline notes, a checkbox, a radio group, a dropdown, multiple selections and a read-only reference. It also includes two explicit links for testing the permission dialogs. Generate it again with `python scripts/generate_form_example.py`; the sample contains no scripts or automatic submission.
+
+Click a highlighted field and fill it **directly on the PDF page**. Checkboxes and individual radio buttons respond to clicks; text, choices and lists use controls positioned inside the field. **Fill form** in the banner or **Edit** menu, or **Ctrl+Shift+F** (**Compila modulo** in Italian), focuses the first available field. **Tab / Shift+Tab** move between fields, including those on other pages. **Enter** confirms a single-line field; **Ctrl+Enter** confirms multiline notes. **Esc** discards the active field's pending changes.
+
+Leaving a field applies its value to the working copy as one undoable change. Use **Save / Save as** to write the PDF; saving also includes the currently focused field, and fields remain editable in compatible readers. Controls follow zoom, scrolling and viewport size. Invalid values or write failures retain the draft and prevent saving or closing until corrected or cancelled with Esc. **Ctrl+Z / Ctrl+Y** undo and redo applied field values; the original is preserved until you explicitly overwrite it.
+
+This supports static **AcroForm** fields, with a limit of 500 fields and 32,768 characters per value, subject to each field's own text limit. Field names may be hierarchical; repeated widgets share their value. Required-field flags are retained, and partial forms may still be saved. Read-only fields, signature fields and action buttons cannot be edited. Encrypted PDFs retain the application's existing read-only policy. XFA, JavaScript calculations/validation and automatic submission remain unsupported and subject to the preventive security check. Editing a signed or PDF/A-declared document can invalidate signatures or compliance. Page reconstruction can affect complex form structures; inspect the saved working copy after page edits.
+
+Implementation follows the [pypdf form API](https://pypdf.readthedocs.io/en/stable/user/forms.html), preserving AcroForm structures and generating field appearances with `auto_regenerate=False`.
+
 ## Security checks and resource limits
 
 The preventive check is always enabled, including in the CLI. Before interpreting a PDF in the main process, the app creates a size-bounded private snapshot and checks those same bytes in a separate Python process. Passwords are sent through standard input and do not appear in command-line arguments. The source security worker ignores `PYTHONPATH` and the current directory when importing modules; compiled workers use their bundled code.
@@ -238,7 +265,9 @@ Structural analysis visits the catalog, pages, annotations, forms, references, a
 
 Generated edit revisions are checked before entering the undo history or renderer. This also enforces the page limit on merged documents. Stream checks inspect the stored bytes as well as any declared length; pypdf removes the `/Length` key during parsing. See the [security review](docs/security-review.md) for verification scope, dependency findings, and remaining risks.
 
-Embedded attachments and ordinary HTTP/HTTPS/email links are reported and not opened. Attachments may remain in saved PDFs; they are not stripped or disinfected. Signed, PDF/A-declared, and encrypted documents must also pass the check. Encrypted PDFs are checked after successful authentication, using an empty password when the document permits opening without one.
+Embedded attachments are reported and cannot be opened. HTTP/HTTPS/email links start disabled: use **Enable links…** in the document banner, or click an explicit link and confirm enabling it for that tab. Each opening then shows the exact destination and asks for confirmation, with **No** selected by default. Permission expires when the tab closes, does not affect other documents, and can be revoked with **Disable links**. Only explicit link annotations are handled; automatic actions, scripts, local-file/custom-protocol links and form submission remain blocked. The app rejects malformed addresses, credentials in web URLs, and email attachment parameters. Your browser or email application may contact external services after confirmation. PDF data is never automatically submitted.
+
+Attachments may remain in saved PDFs; they are not stripped or disinfected. Signed, PDF/A-declared, and encrypted documents must also pass the check. Encrypted PDFs are checked after successful authentication, using an empty password when the document permits opening without one.
 
 <details>
 <summary><strong>Input limits and rendering budgets</strong></summary>

@@ -30,7 +30,7 @@ FINDINGS = {
     "unsafe_uri": "Collegamenti a file locali o protocolli non consentiti",
     "unknown_action": "Azioni PDF non supportate dal controllo",
     "attachments": "Allegati incorporati: apertura ed esecuzione disabilitate",
-    "external_links": "Collegamenti web/email: apertura disabilitata",
+    "external_links": "Collegamenti web/email: disabilitati fino alla conferma dell'utente",
 }
 BLOCKED = frozenset(FINDINGS) - {"attachments", "external_links"}
 

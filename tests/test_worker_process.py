@@ -10,14 +10,14 @@ from pypdf import PdfWriter
 from ape_pdf_studio.core.worker_process import worker_command
 
 
-@pytest.mark.parametrize("kind", ["security", "vector", "docx", "ocr", "shell"])
+@pytest.mark.parametrize("kind", ["security", "vector", "docx", "ocr", "shell", "form_detect"])
 def test_frozen_jobs_use_bundled_console_helper(monkeypatch, tmp_path, kind):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(tmp_path / "APEPDFStudio.exe"))
     assert worker_command(kind, "path with spaces") == [str(tmp_path / "APEPDFWorker.exe"), kind, "path with spaces"]
 
 
-@pytest.mark.parametrize("kind", ["security", "vector", "shell"])
+@pytest.mark.parametrize("kind", ["security", "vector", "shell", "form_detect"])
 def test_source_security_and_vectors_keep_isolated_interpreter(monkeypatch, tmp_path, kind):
     monkeypatch.setattr(sys, "frozen", False, raising=False)
     monkeypatch.setattr(sys, "executable", str(tmp_path / "pythonw.exe"))

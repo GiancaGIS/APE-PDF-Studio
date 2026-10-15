@@ -21,11 +21,14 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.editor import PDFEditor, PDFOperationError
+from ..core.form_appearance import display_copy
 from .pdf_view import TextPdfView
 from .thumbnails import ThumbnailList
 from .document_notice import DocumentNotice
 from .properties_dialog import PropertiesDialog
 from .theme import theme_color
+from .inline_forms import InlineForms
+from .form_designer import FormDesigner
 
 
 class SearchResultDelegate(QStyledItemDelegate):
@@ -98,6 +101,9 @@ class DocumentTab(QWidget):
         self._pending_page: int | None = None
         self._query = ""
         self._search_open = False
+        self.links_enabled = False
+        self.links = {}
+        self.form_fields = ()
 
         self.pdf = QPdfDocument(self)
         self._buffer = QBuffer(self)
@@ -163,6 +169,15 @@ class DocumentTab(QWidget):
         self.notice.details_requested.connect(self.show_properties)
         root.addWidget(self.notice)
         root.addWidget(self.splitter, 1)
+        self.inline_form = InlineForms(self.viewer, lambda: self.editor.path, self._commit_inline_form)
+        self.viewer.inline_form = self.inline_form
+        self.inline_form.changed.connect(self.changed)
+        self.viewer.form_requested.connect(lambda name: self.inline_form.start(
+            name, self.viewer._interaction_start, clicked=True))
+        self.form_designer = FormDesigner(self)
+        self.splitter.addWidget(self.form_designer)
+        self.splitter.setStretchFactor(2,0)
+        self.form_designer.state_changed.connect(self.changed)
         self.pdf.statusChanged.connect(self._on_pdf_status)
         try:
             self._reload(0)
@@ -173,7 +188,18 @@ class DocumentTab(QWidget):
 
     @property
     def title(self) -> str:
-        return self.editor.output_path.name + (" *" if self.editor.dirty else "")
+        return self.editor.output_path.name + (" *" if self.dirty else "")
+
+    @property
+    def dirty(self):
+        return self.editor.dirty or self.inline_form.dirty
+
+    def _commit_inline_form(self, values, revision):
+        self.apply_edit("fill_form", values, revision)
+        return self.editor.path
+
+    def finish_form(self):
+        return self.inline_form.finish()
 
     @property
     def page(self) -> int:
@@ -184,6 +210,14 @@ class DocumentTab(QWidget):
         return self.pdf.pageCount()
 
     def _reload(self, target_page: int) -> None:
+        self.inline_form.cancel()
+        self.links, self.form_fields = self.editor.interactions()
+        self.viewer.links = self.links
+        self.viewer.form_fields = self.form_fields
+        self.viewer._interaction_click = None
+        self.form_designer.document_changed()
+        self.notice.form_count = len(self.form_fields)
+        self.notice.links_enabled = self.links_enabled
         self.notice.refresh()
         self.viewer.notes = self.editor.notes()
         self._pending_page = target_page
@@ -198,7 +232,10 @@ class DocumentTab(QWidget):
         # Load from memory so PDFium's render workers never hold Windows locks
         # on revisions that Undo branching or closing needs to remove.
         self._buffer.close()
-        self._buffer.setData(QByteArray(self.editor.path.read_bytes()))
+        data = self.editor.path.read_bytes()
+        if self.form_fields:
+            data = display_copy(data, self.pdf.password())
+        self._buffer.setData(QByteArray(data))
         self._buffer.open(QIODevice.OpenModeFlag.ReadOnly)
         self.pdf.load(self._buffer)
         # Most local files load synchronously; statusChanged also covers asynchronous load.
@@ -307,6 +344,9 @@ class DocumentTab(QWidget):
         self.changed.emit()
 
     def apply_edit(self, method: str, *args) -> None:
+        if method != "fill_form" and not self.finish_form():
+            raise PDFOperationError(tr("Correggi il campo del modulo oppure premi Esc per annullarlo."))
+        scroll = (self.viewer.horizontalScrollBar().value(), self.viewer.verticalScrollBar().value())
         current = self.page
         getattr(self.editor, method)(*args)
         if method == "delete" and current >= self.count - 1:
@@ -315,14 +355,21 @@ class DocumentTab(QWidget):
             current += args[1]
         self._pending_page = current
         self._reload(current)
+        if method == "fill_form":
+            self.viewer.horizontalScrollBar().setValue(scroll[0])
+            self.viewer.verticalScrollBar().setValue(scroll[1])
         self.changed.emit()
 
     def undo(self) -> None:
+        if not self.finish_form():
+            return
         if self.editor.undo():
             self._pending_page = self.page
             self._reload(self.page)
 
     def redo(self) -> None:
+        if not self.finish_form():
+            return
         if self.editor.redo():
             self._pending_page = self.page
             self._reload(self.page)
@@ -337,6 +384,8 @@ class DocumentTab(QWidget):
         dialog.deleteLater()
 
     def close_document(self) -> None:
+        self.form_designer.shutdown()
+        self.inline_form.shutdown()
         self.thumbs.shutdown()
         self.viewer.set_vector_source(None)
         self.viewer.setSearchModel(None)

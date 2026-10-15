@@ -287,8 +287,29 @@ def main():
                 raise RuntimeError("Il testo non sopravvive al processo OCR.")
         passed("OCR bilingue reale" if models else "Processo OCR (pagina gia testuale; modelli assenti)")
 
+        for name in ("modulo_da_preparare.pdf","modulo_da_preparare_scansione.pdf"):
+            flat = root / "examples" / name
+            result = json.loads(run("form_detect",request=dict(path=str(flat),pages=[0],
+                cache_dir=str(models or work/"no_models"),use_ocr=models is not None)))
+            proposals = result.get("proposals",[])
+            if len(proposals)!=5 or sum(p.get("kind")=="checkbox" for p in proposals)!=1:
+                raise RuntimeError(f"Riconoscimento campi fallito: {name}")
+            if models is not None and "Nome_e_cognome" not in {p["name"] for p in proposals}:
+                raise RuntimeError(f"Etichette OCR non riconosciute: {name}")
+        passed("Preparazione moduli: riconoscimento digitale, scansioni e OCR locale senza modificare i PDF")
+
+        form_example = root / "examples/modulo_compilabile.pdf"
+        if not form_example.is_file():
+            raise RuntimeError("Esempio AcroForm mancante.")
+        form_report = json.loads(run("security", request={"path": str(form_example)}))
+        if form_report.get("status") != "checked" or set(form_report.get("findings", [])) != {"external_links"}:
+            raise RuntimeError("Il modulo di esempio non supera il controllo di sicurezza.")
+        with PdfReader(form_example) as reader:
+            if len(reader.get_fields()) != 8:
+                raise RuntimeError("Il modulo di esempio non contiene tutti i campi.")
+        passed("Esempio AcroForm: otto campi statici e collegamenti espliciti, senza contenuti attivi")
         process = subprocess.Popen(
-            [str(gui)], cwd=work, env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+            [str(gui), str(form_example)], cwd=work, env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -296,7 +317,7 @@ def main():
             time.sleep(3)
             if process.poll() is not None:
                 raise RuntimeError("Avvio GUI fallito: " + process.communicate()[1].decode(errors="replace"))
-            passed("Avvio interfaccia senza console")
+            passed("Avvio interfaccia senza console con PDF compilabile")
         finally:
             if process.poll() is None:
                 process.terminate()

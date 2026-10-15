@@ -22,6 +22,8 @@ class TextPdfView(QPdfView):
     note_requested = Signal(int, QPointF)
     note_open_requested = Signal(int, int)
     text_edit_requested = Signal(int, QPointF)
+    link_requested = Signal(str)
+    form_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -37,6 +39,12 @@ class TextPdfView(QPdfView):
         self._placement = None
         self.edit_target = None
         self.editable = True
+        self.links = {}
+        self.form_fields = ()
+        self.inline_form = None
+        self.form_designer = None
+        self._interaction_click = None
+        self._interaction_start = None
         self._geometry_key = None
         self._geometry = {}
         self._images = OrderedDict()
@@ -67,6 +75,7 @@ class TextPdfView(QPdfView):
         self._stop_pan()
         self._cancel_placement()
         self._note_click = None
+        self._interaction_click = None
         self.vectors.reset(self.vectors.source, self.vectors.password)
         self._render_epoch += 1
         if self._renderer:
@@ -89,6 +98,8 @@ class TextPdfView(QPdfView):
             self._renderer.pageRendered.connect(lambda *args: self._page_rendered(*args)
                                                 if epoch == self._render_epoch else None)
         self.viewport().update()
+        if self.inline_form:
+            self.inline_form.reposition()
 
     def clear_selection(self):
         self.selection = None
@@ -211,6 +222,11 @@ class TextPdfView(QPdfView):
             return
         if event.button() == Qt.MouseButton.LeftButton:
             hit = self.point_on_page(event.position())
+            if self.form_designer and self.form_designer.isVisible():
+                self.clear_selection()
+                self.form_designer.press(hit,event.position())
+                event.accept()
+                return
             if self._placement:
                 if hit:
                     kind = self._placement
@@ -228,6 +244,8 @@ class TextPdfView(QPdfView):
                 event.accept()
                 return
             self.clear_selection()
+            self._interaction_click = self.interaction_at(event.position())
+            self._interaction_start = event.position()
             self._anchor = hit
             self._dragged = False
             self.setFocus()
@@ -236,6 +254,12 @@ class TextPdfView(QPdfView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self.form_designer and self.form_designer.isVisible():
+            self.viewport().setCursor(Qt.CursorShape.CrossCursor if self.form_designer.mode != "select" else Qt.CursorShape.ArrowCursor)
+            self.form_designer.move(event.position())
+            if self._pan_position is None:
+                event.accept()
+                return
         if self._pan_position is not None:
             if event.buttons() & Qt.MouseButton.MiddleButton:
                 delta = event.globalPosition() - self._pan_position
@@ -247,16 +271,26 @@ class TextPdfView(QPdfView):
                 return
             self._stop_pan()
         note = self.note_at(event.position())
+        interaction = self.interaction_at(event.position())
         self.viewport().setCursor(Qt.CursorShape.CrossCursor if self._placement == "note" else
-                                  Qt.CursorShape.PointingHandCursor if note else Qt.CursorShape.IBeamCursor)
+                                  Qt.CursorShape.PointingHandCursor if note or interaction else Qt.CursorShape.IBeamCursor)
         if note:
             entry = next(n for n in self.notes[note[0]] if n["index"] == note[1])
             # Qt tooltips may interpret rich text; escape document content.
             from html import escape
             self.viewport().setToolTip("<qt>" + escape(entry["text"][:2000]) + "</qt>")
+        elif interaction:
+            from html import escape
+            text = interaction[1] if interaction[0] == "link" else tr("Compila questo campo del modulo")
+            self.viewport().setToolTip("<qt>" + escape(text) + "</qt>")
         else:
             self.viewport().setToolTip("")
         if self._anchor and event.buttons() & Qt.MouseButton.LeftButton:
+            if self._interaction_click is not None:
+                if (event.position() - self._interaction_start).manhattanLength() < QApplication.startDragDistance():
+                    event.accept()
+                    return
+                self._interaction_click = None
             page, start = self._anchor
             inverse, _ = self.page_transform(page).inverted()
             end = inverse.map(event.position())
@@ -272,6 +306,10 @@ class TextPdfView(QPdfView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.form_designer and self.form_designer.isVisible():
+            self.form_designer.release(event.position())
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._stop_pan()
             event.accept()
@@ -288,9 +326,12 @@ class TextPdfView(QPdfView):
         dragged = self._dragged
         self._anchor = None
         if event.button() == Qt.MouseButton.LeftButton:
+            interaction, self._interaction_click = self._interaction_click, None
+            if interaction and not dragged and self.interaction_at(event.position()) == interaction:
+                (self.link_requested if interaction[0] == "link" else self.form_requested).emit(interaction[1])
             if dragged and not self.has_selection:
                 self.message.emit(tr("Nessun testo selezionabile qui. Usa Annota → Riconosci testo (OCR)…"))
-            # Never delegate document clicks to a link/action handler.
+            # Only our validated interaction signals can request an external action.
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -308,6 +349,8 @@ class TextPdfView(QPdfView):
     def hideEvent(self, event):
         self._stop_pan()
         self._cancel_placement()
+        if self.inline_form:
+            self.inline_form.finish()
         super().hideEvent(event)
 
     def begin_placement(self, kind):
@@ -337,12 +380,33 @@ class TextPdfView(QPdfView):
                     return page, entry["index"]
         return None
 
+    def interaction_at(self, position):
+        hit = self.point_on_page(position)
+        if not hit:
+            return None
+        page, point = hit
+        for field in self.form_fields:
+            for number, rect in field.widgets:
+                if number == page and QRectF(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]).contains(point):
+                    return "form", field.name
+        for entry in self.links.get(page, []):
+            rect = entry["rect"]
+            if QRectF(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]).contains(point):
+                return "link", entry["url"]
+        return None
+
     def mouseDoubleClickEvent(self, event):
+        if self.form_designer and self.form_designer.isVisible():
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self.mousePressEvent(event)
             return
         hit = self.point_on_page(event.position())
         if event.button() == Qt.MouseButton.LeftButton and hit:
+            if self.interaction_at(event.position()):
+                event.accept()
+                return
             page, point = hit
             selection = self.document().getSelection(page, point, point)
             text = self.document().getAllText(page).text()
@@ -379,7 +443,20 @@ class TextPdfView(QPdfView):
             self.message.emit(tr("Questa pagina non contiene testo selezionabile. Usa Annota → Riconosci testo (OCR)…"))
 
     def keyPressEvent(self, event):
-        if event.matches(QKeySequence.StandardKey.Copy):
+        preparing = self.form_designer and self.form_designer.isVisible()
+        if preparing and event.key() in (Qt.Key.Key_Delete,Qt.Key.Key_Backspace):
+            self.form_designer.remove_selected()
+            event.accept()
+        elif preparing and event.key()==Qt.Key.Key_Escape:
+            self.form_designer._drag=None
+            self.form_designer._preview=None
+            self.form_designer.draw_kind.setCurrentIndex(0)
+            self.viewport().update()
+            event.accept()
+        elif not preparing and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab) and self.inline_form and self.form_fields:
+            self.inline_form.next_field(event.key() == Qt.Key.Key_Backtab or bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+            event.accept()
+        elif event.matches(QKeySequence.StandardKey.Copy):
             self.copy_selection()
             event.accept()
         elif event.matches(QKeySequence.StandardKey.SelectAll):
@@ -398,8 +475,18 @@ class TextPdfView(QPdfView):
 
     def make_context_menu(self, page=None, point=None):
         menu = QMenu(self)
+        if self.form_designer and self.form_designer.isVisible():
+            menu.addAction(tr("Elimina proposta"),self.form_designer.remove_selected)
+            return menu
         if point is not None and page is not None:
             viewport_point = self.page_transform(page).map(point)
+            self._interaction_start = viewport_point
+            interaction = self.interaction_at(viewport_point)
+            if interaction:
+                kind, value = interaction
+                menu.addAction(tr("Apri collegamento…") if kind == "link" else tr("Compila modulo"),
+                               lambda: (self.link_requested if kind == "link" else self.form_requested).emit(value))
+                menu.addSeparator()
             note = self.note_at(viewport_point)
             if note:
                 menu.addAction(tr("Apri nota…"), lambda: self.note_open_requested.emit(*note))
@@ -418,6 +505,11 @@ class TextPdfView(QPdfView):
         menu.addSeparator()
         menu.addAction(tr("Seleziona testo della pagina"), lambda: self.select_page_text(page))
         return menu
+
+    def focusNextPrevChild(self, next):
+        if self.hasFocus() and self.inline_form and self.form_fields and not (self.form_designer and self.form_designer.isVisible()):
+            return self.inline_form.next_field(not next)
+        return super().focusNextPrevChild(next)
 
     def contextMenuEvent(self, event):
         hit = self.point_on_page(QPointF(event.pos()))
@@ -513,6 +605,20 @@ class TextPdfView(QPdfView):
             transform = self.page_transform(page)
             if page in vector_pages:
                 vector_pages[page].paint(painter, transform, viewport.intersected(visible))
+            if self.form_designer and self.form_designer.isVisible():
+                self.form_designer.paint(painter,page,transform)
+            for field in self.form_fields:
+                for number, rect in field.widgets:
+                    if number != page:
+                        continue
+                    target = transform.mapRect(QRectF(rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]))
+                    color = QColor(theme_color("accent"))
+                    color.setAlpha(18 if field.readonly or not self.editable else 38)
+                    painter.fillRect(target, color)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    color.setAlpha(90)
+                    painter.setPen(QPen(color, 1))
+                    painter.drawRect(target)
             if self.edit_target and self.edit_target[0] == page:
                 left, top, right, bottom = self.edit_target[1]
                 painter.setBrush(Qt.BrushStyle.NoBrush)

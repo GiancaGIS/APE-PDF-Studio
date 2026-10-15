@@ -4,8 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from .. import __version__
 
-from PySide6.QtCore import QSettings, QSignalBlocker, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QColor, QKeySequence, QShortcut
+from PySide6.QtCore import QSettings, QSignalBlocker, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QCloseEvent, QColor, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -44,6 +44,7 @@ from .ocr import OcrDialog, OcrJob
 from .language import configure_language
 from .licenses_dialog import LicensesDialog
 from .updates_dialog import UpdatesDialog
+from ..core.pdf_links import allowed_url
 from ..core.localization import DEFAULT_LANGUAGE, normalize_language, tr
 
 
@@ -200,6 +201,8 @@ class MainWindow(QMainWindow):
         self.a_note = self._action(tr("Aggiungi nota…"), self.add_note, "Ctrl+M", edit=True)
         self.a_edit_text = self._action(tr("Modifica testo…"), lambda: self.current.viewer.begin_placement("text"), edit=True)
         self.a_ocr = self._action(tr("Riconosci testo (OCR)…"), self.recognize_text, edit=True)
+        self.a_form = self._action(tr("Compila modulo"), self.fill_form, "Ctrl+Shift+F", doc=True)
+        self.a_prepare_form = self._action(tr("Prepara modulo…"), self.prepare_form, doc=True)
         self.a_prev = self._action(tr("Pagina precedente"), lambda: self._navigate(-1), "PgUp", doc=True)
         self.a_next = self._action(tr("Pagina successiva"), lambda: self._navigate(+1), "PgDown", doc=True)
         self.a_zoom_in = self._action(tr("Ingrandisci"), lambda: self.current.zoom_in(), "Ctrl++", doc=True)
@@ -242,7 +245,7 @@ class MainWindow(QMainWindow):
         menu_edit = self.menuBar().addMenu(tr("Modifica"))
         for a in (self.a_undo, self.a_redo, self.a_rotate, self.a_rotate_ccw,
                   self.a_delete, self.a_up, self.a_down, self.a_insert, self.a_note,
-                  self.a_copy, self.a_highlight, self.a_underline, self.a_edit_text, self.a_ocr):
+                  self.a_copy, self.a_highlight, self.a_underline, self.a_edit_text, self.a_ocr, self.a_form,self.a_prepare_form):
             menu_edit.addAction(a)
         menu_view = self.menuBar().addMenu(tr("Visualizza"))
         for a in (self.a_prev, self.a_next, self.a_zoom_in, self.a_zoom_out,
@@ -290,7 +293,8 @@ class MainWindow(QMainWindow):
         self.annotate_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.annotate_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         annotations = QMenu(self.annotate_button)
-        annotations.addActions([self.a_copy, self.a_highlight, self.a_underline, self.a_note, self.a_edit_text, self.a_ocr])
+        annotations.addActions([self.a_copy, self.a_highlight, self.a_underline, self.a_note, self.a_edit_text, self.a_ocr, self.a_form])
+        annotations.addAction(self.a_prepare_form)
         self.annotate_button.setMenu(annotations)
         self.annotate_control = toolbar.addWidget(self.annotate_button)
         self.pages_button = QToolButton()
@@ -488,25 +492,32 @@ class MainWindow(QMainWindow):
             action.setEnabled(tab is not None)
         for action in self._edit_actions:
             action.setEnabled(tab is not None and not tab.editor.encrypted)
-        self.a_export_docx.setEnabled(tab is not None and not tab.editor.encrypted and self._export_job is None)
-        self.a_ocr.setEnabled(tab is not None and not tab.editor.encrypted and self._ocr_job is None)
+        self.a_form.setEnabled(tab is not None and bool(tab.form_fields))
+        preparing = tab is not None and tab.form_designer.isVisible()
+        self.a_prepare_form.setEnabled(tab is not None and not tab.editor.encrypted)
+        if preparing:
+            for action in self._edit_actions:
+                action.setEnabled(False)
+            self.a_form.setEnabled(False)
+        self.a_export_docx.setEnabled(tab is not None and not tab.editor.encrypted and self._export_job is None and not preparing)
+        self.a_ocr.setEnabled(tab is not None and not tab.editor.encrypted and self._ocr_job is None and not preparing)
         self.search.setEnabled(tab is not None)
         self.page_spin.setEnabled(tab is not None)
         self.zoom_combo.setEnabled(tab is not None)
         self.a_copy.setEnabled(tab is not None and tab.viewer.has_selection)
         for action in (self.a_highlight, self.a_underline):
-            action.setEnabled(tab is not None and not tab.editor.encrypted and tab.viewer.has_selection)
+            action.setEnabled(tab is not None and not tab.editor.encrypted and tab.viewer.has_selection and not preparing)
         if tab:
             if tab.search_model.searchString() != tab._query:
                 self._search_timer.start(180)
-            self.a_undo.setEnabled(tab.editor.can_undo)
-            self.a_redo.setEnabled(tab.editor.can_redo)
+            self.a_undo.setEnabled(tab.editor.can_undo and not preparing)
+            self.a_redo.setEnabled(tab.editor.can_redo and not preparing)
             with QSignalBlocker(self.search):
                 self.search.setText(tab._query)
             self._update_page(tab.page, tab.count)
             self._update_search_status(tab._selected_search + 1, tab.search_model.count())
             self._update_zoom()
-            self.document_state.setText(tr("Sola lettura") if tab.editor.encrypted else tr("Modifiche da salvare") if tab.editor.dirty else tr("Salvato"))
+            self.document_state.setText(tr("Sola lettura") if tab.editor.encrypted else tr("Modifiche da salvare") if tab.dirty else tr("Salvato"))
             self.setWindowTitle(f"{tab.title} — APE PDF Studio")
             self.statusBar().setToolTip(str(tab.editor.output_path))
             self.statusBar().showMessage(tr("Ctrl/⌘ + rotella: zoom · trascina con la rotella premuta: sposta · tasto destro: annota"))
@@ -675,6 +686,9 @@ class MainWindow(QMainWindow):
         tab.viewer.note_requested.connect(lambda page, point, owner=tab: self.add_note_at(owner, page, point))
         tab.viewer.note_open_requested.connect(lambda page, index, owner=tab: self.open_note(owner, page, index))
         tab.viewer.text_edit_requested.connect(lambda page, point, owner=tab: self.edit_text_at(owner, page, point))
+        tab.viewer.link_requested.connect(lambda url, owner=tab: self.open_pdf_link(owner, url))
+        tab.notice.form_requested.connect(lambda owner=tab: self.fill_form(owner))
+        tab.notice.links_requested.connect(lambda owner=tab: self.toggle_pdf_links(owner))
         tab.message.connect(lambda text, owner=tab: self.statusBar().showMessage(text, 5000) if self.current is owner else None)
         tab.viewer.zoomFactorChanged.connect(lambda _, owner=tab: self._update_zoom() if self.current is owner else None)
         tab.viewer.vectors.changed.connect(lambda owner=tab: self._update_render_state() if self.current is owner else None)
@@ -690,6 +704,10 @@ class MainWindow(QMainWindow):
         self._update_state()
 
     def _confirm_close(self, tab: DocumentTab) -> bool:
+        if not tab.form_designer.confirm_discard():
+            return False
+        if not tab.finish_form():
+            return False
         if not tab.editor.dirty:
             return True
         result = QMessageBox.question(
@@ -760,6 +778,70 @@ class MainWindow(QMainWindow):
         if tab is None:
             return
         self._run(lambda: tab.apply_edit(method, *args), tr("Modifica applicata · Usa Ctrl+Z per annullare"))
+
+    def _confirm_pdf_content(self, title, text):
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(title)
+        dialog.setIcon(QMessageBox.Icon.Question)
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setText(text)
+        dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+        dialog.setEscapeButton(QMessageBox.StandardButton.No)
+        result = dialog.exec()
+        dialog.deleteLater()
+        return result == QMessageBox.StandardButton.Yes
+
+    def toggle_pdf_links(self, tab):
+        if self.current is not tab:
+            return False
+        if tab.links_enabled:
+            tab.links_enabled = False
+        elif self._confirm_pdf_content(tr("Abilita collegamenti PDF"), tr(
+                "Abilitare i collegamenti web e email per questo documento?\n\n"
+                "L'abilitazione termina alla chiusura della scheda. Ogni apertura richiede la conferma dell'indirizzo. "
+                "Il browser o il programma email possono comunicare con servizi esterni. "
+                "Il PDF non può avviare programmi, aprire file locali o inviare automaticamente i dati del modulo.")):
+            if self.current is not tab:
+                return False
+            tab.links_enabled = True
+        tab.notice.links_enabled = tab.links_enabled
+        tab.notice.refresh()
+        return tab.links_enabled
+
+    def open_pdf_link(self, tab, value):
+        if self.current is not tab or not tab.finish_form():
+            return
+        url = allowed_url(value)
+        if url is None or not any(entry["url"] == url for entries in tab.links.values() for entry in entries):
+            return
+        revision = tab.editor.path
+        if not tab.links_enabled and not self.toggle_pdf_links(tab):
+            return
+        target = QUrl(url, QUrl.ParsingMode.StrictMode)
+        if not target.isValid() or target.scheme() not in ("http", "https", "mailto"):
+            return
+        # Show the exact ASCII URL passed to the operating system, including
+        # punycode hosts, path and query. PDF text never becomes rich text here.
+        address = bytes(target.toEncoded()).decode("ascii")
+        confirmed = self._confirm_pdf_content(tr("Apri collegamento PDF"),
+            tr("Aprire questo indirizzo con il browser o il programma email?\n\n{0}\n\nDocumento: {1}",
+               address, tab.editor.output_path.name))
+        if confirmed and self.current is tab and tab.links_enabled and tab.editor.path == revision:
+            if not QDesktopServices.openUrl(target):
+                QMessageBox.warning(self, tr("Collegamento PDF"), tr("Impossibile aprire il collegamento con l'applicazione predefinita."))
+
+    def fill_form(self, tab=None, name=None):
+        # QAction.triggered supplies a boolean rather than a document.
+        tab = self.current if tab is None or isinstance(tab, bool) else tab
+        if tab is None or self.current is not tab or not tab.form_fields:
+            return
+
+        tab.inline_form.start(name)
+
+    def prepare_form(self):
+        if self.current and not self.current.editor.encrypted:
+            self.current.form_designer.open()
 
     def undo(self) -> None:
         if self.current:
@@ -880,7 +962,7 @@ class MainWindow(QMainWindow):
             self._save_tab(self.current)
 
     def _save_tab(self, tab: DocumentTab) -> bool:
-        if tab.editor.encrypted:
+        if tab.editor.encrypted or not tab.finish_form():
             return False
         if tab.editor.output_path == tab.editor.source:
             return self._save_as_tab(tab)
@@ -891,7 +973,7 @@ class MainWindow(QMainWindow):
                          output=path, notification=tr("PDF salvato"))
 
     def print_document(self) -> None:
-        if self.current:
+        if self.current and self.current.finish_form():
             def show_print():
                 dialog = PrintDialog(self.current, self)
                 try:
@@ -906,6 +988,8 @@ class MainWindow(QMainWindow):
             self._save_as_tab(self.current)
 
     def _save_as_tab(self, tab: DocumentTab) -> bool:
+        if not tab.finish_form():
+            return False
         proposed = self._choose_output_name(tab.editor.output_path, "_edited")
         destination, _ = QFileDialog.getSaveFileName(self, tr("Salva PDF con nome"), proposed, tr("Documenti PDF (*.pdf)"), options=QFileDialog.Option.DontConfirmOverwrite)
         if not destination:
@@ -944,6 +1028,8 @@ class MainWindow(QMainWindow):
 
     def export_image(self) -> None:
         tab = self.current
+        if tab and not tab.finish_form():
+            return
         if not tab or tab.editor.encrypted:
             return
         page = tab.page
@@ -972,6 +1058,8 @@ class MainWindow(QMainWindow):
 
     def export_docx(self) -> None:
         tab = self.current
+        if tab and not tab.finish_form():
+            return
         if not tab or tab.editor.encrypted or self._export_job is not None:
             return
         proposed = str(tab.editor.output_path.with_suffix(".docx"))
@@ -1030,6 +1118,8 @@ class MainWindow(QMainWindow):
 
     def recognize_text(self):
         tab = self.current
+        if tab and not tab.finish_form():
+            return
         if not tab or tab.editor.encrypted or self._ocr_job is not None:
             return
         dialog = OcrDialog(tab.page, tab.count, self)
