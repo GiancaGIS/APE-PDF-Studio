@@ -7,6 +7,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ArrayObject, NameObject, NumberObject
 
 from .errors import PDFOperationError
+from .form_appearance import bake_widgets
 
 
 class PrintSource:
@@ -41,6 +42,7 @@ class PrintSource:
                     added[NameObject("/Annots")] = ArrayObject(kept)
                 else:
                     added.pop("/Annots", None)
+            bake_widgets(writer, printing=True)
             writer.write(destination)
         self._copies[comments] = destination
         return destination

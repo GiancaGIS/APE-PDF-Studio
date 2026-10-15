@@ -6,10 +6,14 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolBut
 
 class DocumentNotice(QFrame):
     details_requested = Signal()
+    links_requested = Signal()
+    form_requested = Signal()
 
     def __init__(self, editor, parent=None):
         super().__init__(parent)
         self.editor = editor
+        self.form_count = 0
+        self.links_enabled = False
         self.setObjectName("DocumentNotice")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         row = QHBoxLayout(self)
@@ -19,6 +23,13 @@ class DocumentNotice(QFrame):
         self.text.setTextFormat(Qt.TextFormat.PlainText)
         self.text.setWordWrap(True)
         row.addWidget(self.text, 1)
+        self.form_button = QToolButton()
+        self.form_button.setText(tr("Compila modulo"))
+        self.form_button.clicked.connect(self.form_requested)
+        row.addWidget(self.form_button)
+        self.links_button = QToolButton()
+        self.links_button.clicked.connect(self.links_requested)
+        row.addWidget(self.links_button)
         details = QToolButton()
         self.details = details
         details.setText(tr("Dettagli"))
@@ -44,7 +55,13 @@ class DocumentNotice(QFrame):
         if "attachments" in security.findings:
             parts.append(tr("Allegati incorporati · apertura disabilitata"))
         if "external_links" in security.findings:
-            parts.append(tr("Collegamenti esterni · apertura disabilitata"))
+            parts.append(tr("Collegamenti esterni · conferma a ogni apertura") if self.links_enabled else
+                         tr("Collegamenti esterni · apertura disabilitata"))
+        if self.form_count:
+            parts.append(tr("Modulo PDF · {0} campi", self.form_count))
+        self.form_button.setVisible(bool(self.form_count))
+        self.links_button.setVisible("external_links" in security.findings)
+        self.links_button.setText(tr("Disabilita collegamenti") if self.links_enabled else tr("Abilita collegamenti…"))
         self.text.setText("   •   ".join(parts))
         tooltip = tr("PDF/A: identificazione dai metadati XMP, conformità non validata.\n"
                      "Firme: presenza di dati di firma, validità crittografica non verificata.\n"

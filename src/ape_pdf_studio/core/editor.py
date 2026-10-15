@@ -183,6 +183,31 @@ class PDFEditor:
 
         self._commit(op, copy_metadata=False)
 
+    def interactions(self):
+        """Inspect links and static fields in the already checked revision."""
+        from .pdf_links import read_links
+        from .pdf_forms import read_fields
+        with PdfReader(self.path) as reader:
+            if reader.is_encrypted and not reader.decrypt(self._password or ""):
+                raise PDFPasswordRequired(tr("Password necessaria o non corretta."))
+            return read_links(reader), read_fields(reader)
+
+    def fill_form(self, values: dict, revision: str | Path) -> None:
+        from .pdf_forms import read_fields, validate_changes, write_values
+        if Path(revision) != self.path:
+            raise PDFOperationError(tr("Il documento è cambiato. Riapri il modulo prima di compilare."))
+        with self._reader() as reader:
+            changes = validate_changes(read_fields(reader), values)
+        if not changes:
+            return
+
+        def op(writer, reader):
+            writer.clone_document_from_reader(reader)
+            writer.pdf_header = reader.pdf_header
+            write_values(writer, changes)
+
+        self._commit(op, copy_metadata=False)
+
     def rotate(self, page: int, degrees: int = 90) -> None:
         if degrees not in (90, 180, 270, -90, -180, -270):
             raise PDFOperationError(tr("Rotazione consentita: multipli di 90°."))
@@ -193,6 +218,18 @@ class PDFEditor:
             writer.pages[page].rotate(degrees)
 
         self._commit(op)
+
+    def create_form_fields(self, proposals: list, revision: str | Path) -> None:
+        from .form_design import create_fields
+        if Path(revision) != self.path:
+            raise PDFOperationError(tr("Il documento è cambiato. Ripeti la preparazione del modulo."))
+
+        def op(writer, reader):
+            writer.clone_document_from_reader(reader)
+            writer.pdf_header = reader.pdf_header
+            create_fields(writer, proposals)
+
+        self._commit(op, copy_metadata=False)
 
     def delete(self, page: int) -> None:
         def op(writer: PdfWriter, reader: PdfReader) -> None:

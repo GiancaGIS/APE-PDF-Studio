@@ -24,6 +24,13 @@ def main() -> int:
             return 0
         except Exception:
             return 1
+    if kind == "form_detect":
+        from .form_detect_worker import main as run
+        try:
+            print(json.dumps(run(), ensure_ascii=True), flush=True)
+            return 0
+        except Exception:
+            return 1
     if kind == "docx":
         from .docx_export import main as run
         return run()

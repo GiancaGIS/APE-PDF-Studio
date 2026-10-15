@@ -142,7 +142,7 @@ class PropertiesDialog(QDialog):
             "Il PDF è stato analizzato in un processo separato prima della visualizzazione. "
             "I contenuti attivi riconosciuti e i controlli non completati bloccano l'apertura.\n\n")
             + (report.summary or tr("Nessuno dei contenuti attivi cercati è stato rilevato.")) +
-            tr("\n\nAllegati e collegamenti esterni non vengono aperti. "
+            tr("\n\nGli allegati non vengono aperti. I collegamenti web/email richiedono l'abilitazione per documento e la conferma dell'indirizzo. "
             "Il controllo si applica anche ai PDF inseriti e alle esportazioni Word.\n\n"
             "Limiti di ingresso: 256 MiB, 3000 pagine; controllo entro 12 secondi.\n")
             + (tr("Limite di memoria del processo di controllo: 768 MiB.\n") if report.memory_limited else
