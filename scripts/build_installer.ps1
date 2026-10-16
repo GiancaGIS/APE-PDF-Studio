@@ -16,7 +16,10 @@ param(
     [switch]$SkipDependencyInstall,
     [switch]$SkipBuild,
     [switch]$SkipSmokeTest,
-    [switch]$BundleOnly
+    [switch]$BundleOnly,
+    [switch]$Release,
+    [string]$CertificateThumbprint,
+    [string]$TimestampServer = 'https://timestamp.digicert.com'
 )
 
 Set-StrictMode -Version Latest
@@ -26,6 +29,9 @@ Push-Location -LiteralPath $projectRoot
 $previousLicense = [Environment]::GetEnvironmentVariable('APE_LICENSE_FILE', 'Process')
 try {
     if ($env:OS -ne 'Windows_NT') { throw 'La build richiede Windows e Python x64.' }
+    if ($Release -and (-not $CertificateThumbprint -or $SkipSmokeTest)) {
+        throw 'Una release richiede -CertificateThumbprint e tutti gli smoke test. Senza certificato crea solo una build di sviluppo.'
+    }
     if (-not $LicenseFile) { $LicenseFile = Join-Path $projectRoot 'LICENSE' }
     if (-not $DistRoot) { $DistRoot = Join-Path $projectRoot 'dist' }
     $DistRoot = [IO.Path]::GetFullPath($DistRoot)
@@ -67,8 +73,9 @@ try {
 
     if (-not $SkipBuild) {
         if (-not $SkipDependencyInstall) {
+            & (Join-Path $PSScriptRoot 'build_patched_mupdf.ps1') -PythonExe $PythonExe
             Write-Host '[APE] Installo le dipendenze nell''ambiente di build...'
-            & $PythonExe -m pip install -r (Join-Path $projectRoot 'requirements-release.txt')
+            & $PythonExe -m pip install --find-links (Join-Path $projectRoot '.dev-deps\patched-wheels') -r (Join-Path $projectRoot 'requirements-release.txt')
             if ($LASTEXITCODE -ne 0) { throw 'Installazione dipendenze bloccate fallita.' }
         }
         # Refresh application metadata even when third-party dependencies are
@@ -82,13 +89,17 @@ try {
         & $PythonExe (Join-Path $PSScriptRoot 'prepare_release.py') @sourceArguments
         if ($LASTEXITCODE -ne 0) { throw 'Preparazione licenze/sorgenti fallita.' }
         & (Join-Path $PSScriptRoot 'build_windows_shell.ps1')
+        & (Join-Path $PSScriptRoot 'build_windows_sandbox.ps1')
         Write-Host '[APE] Creo il pacchetto Windows...'
         & $PythonExe -m PyInstaller --noconfirm --distpath $DistRoot --workpath (Join-Path $projectRoot 'build\pyinstaller') (Join-Path $projectRoot 'installer\APEPDFStudio.spec')
         if ($LASTEXITCODE -ne 0) { throw 'Build PyInstaller fallita.' }
     }
 
     $bundleDir = Join-Path $DistRoot 'APEPDFStudio'
+    & $PythonExe (Join-Path $PSScriptRoot 'security_inventory.py') --release --output (Join-Path $DistRoot 'security-inventory.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Gate delle dipendenze di sicurezza non superato.' }
     if (-not (Test-Path -LiteralPath (Join-Path $bundleDir 'APEPDFShell.dll'))) { throw 'Shell extension mancante. Ricrea il pacchetto Windows.' }
+    if (-not (Test-Path -LiteralPath (Join-Path $bundleDir 'APEPDFSandbox.exe'))) { throw 'Launcher sandbox mancante. Ricrea il pacchetto Windows.' }
     foreach ($exeName in @('APEPDFStudio.exe', 'APEPDFWorker.exe', 'ape-pdf-cli.exe')) {
         $exePath = Join-Path $bundleDir $exeName
         if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { throw "Eseguibile mancante: $exePath" }
@@ -105,6 +116,9 @@ try {
         & $PythonExe (Join-Path $projectRoot 'scripts\smoke_windows_bundle.py') --bundle $bundleDir
         if ($LASTEXITCODE -ne 0) { throw 'Verifica del pacchetto Windows fallita.' }
     }
+    if ($Release) {
+        & (Join-Path $PSScriptRoot 'sign_windows_release.ps1') -BundleDir $bundleDir -CertificateThumbprint $CertificateThumbprint -TimestampServer $TimestampServer
+    } else { Write-Warning 'Build di sviluppo non firmata: non pubblicare come release autenticata.' }
     if ($BundleOnly) { Write-Host "Pacchetto pronto: $bundleDir"; return }
 
     if (-not $SkipSmokeTest) {
@@ -114,9 +128,21 @@ try {
     }
 
     $outputDir = Join-Path $DistRoot 'installer'
+    $signArguments=@()
+    if ($Release) {
+        # Inno invokes the same verified procedure for its generated uninstaller.
+        # Thumbprints contain no private key material. $q/$f are Inno placeholders.
+        if ($TimestampServer -match '["\r\n]') { throw 'Timestamp URL non valida.' }
+        $signScript=Join-Path $PSScriptRoot 'sign_windows_release.ps1'
+        $signCommand='powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $q'+$signScript+'$q -BundleDir $q'+$bundleDir+'$q -Installer $q$f$q -CertificateThumbprint '+$CertificateThumbprint+' -TimestampServer $q'+$TimestampServer+'$q'
+        $signArguments=@('/DReleaseSign',('/SAPECodeSign='+$signCommand))
+    }
     Write-Host '[APE] Compilo l''installer Inno Setup...'
-    & $InnoCompiler "/DAppVersion=$appVersion" "/DDistDir=$bundleDir" "/DOutputDir=$outputDir" "/DLicensePath=$LicenseFile" (Join-Path $projectRoot 'installer\APEPDFStudio.iss')
+    & $InnoCompiler @signArguments "/DAppVersion=$appVersion" "/DDistDir=$bundleDir" "/DOutputDir=$outputDir" "/DLicensePath=$LicenseFile" (Join-Path $projectRoot 'installer\APEPDFStudio.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Compilazione Inno Setup fallita.' }
+    if ($Release) {
+        & (Join-Path $PSScriptRoot 'sign_windows_release.ps1') -BundleDir $bundleDir -Installer (Join-Path $outputDir "APEPDFStudio-$appVersion-Setup-x64.exe") -CertificateThumbprint $CertificateThumbprint -TimestampServer $TimestampServer
+    }
     & $PythonExe (Join-Path $PSScriptRoot 'prepare_release.py') --bundle $bundleDir --output $releaseDir --installer (Join-Path $outputDir "APEPDFStudio-$appVersion-Setup-x64.exe")
     if ($LASTEXITCODE -ne 0) { throw 'Finalizzazione manifesti release fallita.' }
     Write-Host "Installer pronto: $(Join-Path $outputDir "APEPDFStudio-$appVersion-Setup-x64.exe")"

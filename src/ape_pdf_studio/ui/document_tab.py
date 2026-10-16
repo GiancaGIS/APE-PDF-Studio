@@ -20,14 +20,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..core.editor import PDFEditor, PDFOperationError
-from ..core.form_appearance import display_copy
+from ..core.broker_editor import BrokerEditor as PDFEditor
+from ..core.errors import PDFOperationError
+from .remote_pdf import RemoteDocument, RemoteBookmarks, RemoteSearch
 from .pdf_view import TextPdfView
 from .thumbnails import ThumbnailList
 from .document_notice import DocumentNotice
 from .properties_dialog import PropertiesDialog
 from .theme import theme_color
 from .inline_forms import InlineForms
+from .inline_text import InlineText
 from .form_designer import FormDesigner
 
 
@@ -105,18 +107,18 @@ class DocumentTab(QWidget):
         self.links = {}
         self.form_fields = ()
 
-        self.pdf = QPdfDocument(self)
+        self.pdf = RemoteDocument(self.editor, self)
         self._buffer = QBuffer(self)
         if password is not None:
             self.pdf.setPassword(password)
-        self.search_model = QPdfSearchModel(self)
+        self.search_model = RemoteSearch(self)
         self.search_model.setDocument(self.pdf)
         self.search_model.rowsInserted.connect(self._on_search_updated)
         self.search_model.rowsRemoved.connect(self._on_search_updated)
         self.search_model.modelReset.connect(self._on_search_updated)
         if hasattr(self.search_model, "countChanged"):
             self.search_model.countChanged.connect(self._on_search_updated)
-        self.bookmark_model = QPdfBookmarkModel(self)
+        self.bookmark_model = RemoteBookmarks(self)
         self.bookmark_model.setDocument(self.pdf)
 
         self.viewer = TextPdfView(self)
@@ -178,6 +180,9 @@ class DocumentTab(QWidget):
         self.splitter.addWidget(self.form_designer)
         self.splitter.setStretchFactor(2,0)
         self.form_designer.state_changed.connect(self.changed)
+        self.inline_text = InlineText(self)
+        self.viewer.inline_text = self.inline_text
+        self.inline_text.changed.connect(self.changed)
         self.pdf.statusChanged.connect(self._on_pdf_status)
         try:
             self._reload(0)
@@ -192,14 +197,14 @@ class DocumentTab(QWidget):
 
     @property
     def dirty(self):
-        return self.editor.dirty or self.inline_form.dirty
+        return self.editor.dirty or self.inline_form.dirty or self.inline_text.dirty
 
     def _commit_inline_form(self, values, revision):
         self.apply_edit("fill_form", values, revision)
         return self.editor.path
 
     def finish_form(self):
-        return self.inline_form.finish()
+        return self.inline_form.finish() and self.inline_text.finish()
 
     @property
     def page(self) -> int:
@@ -210,6 +215,7 @@ class DocumentTab(QWidget):
         return self.pdf.pageCount()
 
     def _reload(self, target_page: int) -> None:
+        self.inline_text.document_changed()
         self.inline_form.cancel()
         self.links, self.form_fields = self.editor.interactions()
         self.viewer.links = self.links
@@ -232,12 +238,7 @@ class DocumentTab(QWidget):
         # Load from memory so PDFium's render workers never hold Windows locks
         # on revisions that Undo branching or closing needs to remove.
         self._buffer.close()
-        data = self.editor.path.read_bytes()
-        if self.form_fields:
-            data = display_copy(data, self.pdf.password())
-        self._buffer.setData(QByteArray(data))
-        self._buffer.open(QIODevice.OpenModeFlag.ReadOnly)
-        self.pdf.load(self._buffer)
+        self.pdf.load(self.editor.path)
         # Most local files load synchronously; statusChanged also covers asynchronous load.
         if self.pdf.status() == QPdfDocument.Status.Ready and self._initializing:
             self._populate_pages(target_page)
@@ -355,7 +356,7 @@ class DocumentTab(QWidget):
             current += args[1]
         self._pending_page = current
         self._reload(current)
-        if method == "fill_form":
+        if method in ("fill_form", "replace_text", "replace_paragraph"):
             self.viewer.horizontalScrollBar().setValue(scroll[0])
             self.viewer.verticalScrollBar().setValue(scroll[1])
         self.changed.emit()
@@ -384,6 +385,7 @@ class DocumentTab(QWidget):
         dialog.deleteLater()
 
     def close_document(self) -> None:
+        self.inline_text.shutdown()
         self.form_designer.shutdown()
         self.inline_form.shutdown()
         self.thumbs.shutdown()

@@ -136,7 +136,7 @@ def test_real_pdf_print_page_count_order_and_vector_quality(app, text_pdf, tmp_p
             assert all(path['rect'].height < 25 for path in visible)
             assert visible[0]['rect'].height == pytest.approx(
                 11.664 * expected_ratio, abs=1.0)  # Helvetica A outline, no added stroke.
-            assert any(path['fill_opacity'] == 0 for path in paths)
+            assert all(path['type'] == 'f' for path in visible)
     assert text_pdf.read_bytes() == original
     assert not list(tmp_path.glob(".apex_print_*"))
     document.close()

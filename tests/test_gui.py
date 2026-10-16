@@ -954,7 +954,7 @@ def test_security_details_and_attachment_notice_are_visible(window, tmp_path):
     dialog = PropertiesDialog(tab.editor, lambda values: tab.apply_edit("update_metadata", values), window)
     text = dialog.security_details.toPlainText()
     assert "Controllo preventivo attivo" in text
-    assert "sandbox" in text and "antivirus" in text
+    assert "AppContainer" in text and "antivirus" in text
     assert "Allegati" in text
     assert not tab.editor.dirty
     dialog.deleteLater()
@@ -1097,6 +1097,8 @@ def test_vector_clips_match_pdf_renderer_after_crop_and_rotation(window, tmp_pat
     tab.viewer.vectors.cache[0].paint(painter, transform, QRectF(image.rect()))
     painter.end()
     reference = tab.pdf.render(0, QSize(size))
+    image=image.convertToFormat(QImage.Format.Format_RGBA8888)
+    reference=reference.convertToFormat(QImage.Format.Format_RGBA8888)
     a = np.frombuffer(image.constBits(), dtype=np.uint8).reshape(size.height(), size.width(), 4)
     b = np.frombuffer(reference.constBits(), dtype=np.uint8).reshape(size.height(), size.width(), 4)
     assert np.mean(np.abs(a.astype(np.int16) - b.astype(np.int16))) < 1
@@ -1111,10 +1113,10 @@ def test_vector_revision_reload_undo_and_manual_compatibility(window):
     window._edit("rotate", 0, 90)
     assert original not in vectors.cache.values()
     wait_for(lambda: 0 in vectors.cache, timeout=10000)
-    assert vectors.cache[0].renderer.viewBoxF().width() == 600
+    assert vectors.cache[0].size.width() == 600
     window.undo()
     wait_for(lambda: 0 in vectors.cache, timeout=10000)
-    assert vectors.cache[0].renderer.viewBoxF().width() == 400
+    assert vectors.cache[0].size.width() == 400
     window.a_vector.trigger()
     assert not vectors.enabled and not vectors.cache and vectors.process is None
     assert window.render_state.text() == "Compatibilità"
@@ -1285,19 +1287,19 @@ def test_toolbar_note_placement_is_cancelled_by_escape_and_creates_at_click(wind
 
 def test_direct_text_context_edit_updates_search_save_and_undo(window, tmp_path, monkeypatch):
     tab = window.current
+    tab.inline_text.reflow.setChecked(False)
     bounds = tab.pdf.getAllText(0).bounds()[0].boundingRect()
     point = QPointF(bounds.left() + 3, bounds.center().y())
-    def edit(dialog):
-        assert "Alpha beta PDF" in dialog.text.text()
-        dialog.text.setText("Testo corretto")
-        dialog._save()
-        assert not dialog.feedback.isVisible()
-        return dialog.result()
-    monkeypatch.setattr(TextEditDialog, "exec", edit)
     menu = tab.viewer.make_context_menu(0, point)
     action = next(a for a in menu.actions() if a.text() == "Modifica testo…")
     assert action.isEnabled()
     action.trigger()
+    inline = tab.inline_text
+    wait_for(lambda: inline.control is not None, timeout=10000)
+    assert "Alpha beta PDF" in inline.control.text()
+    assert inline.control.parentWidget() is tab.viewer.viewport()
+    inline.control.setText("Testo corretto")
+    assert inline.finish()
     assert "Testo corretto" in tab.pdf.getAllText(0).text()
     assert "Alpha beta PDF" not in tab.pdf.getAllText(0).text()
     assert "Second line" in tab.pdf.getAllText(0).text()

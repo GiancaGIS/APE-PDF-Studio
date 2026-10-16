@@ -51,9 +51,9 @@ def render(data: bytes, edge: int, index: int) -> bytes:
 def main() -> int:
     if not getattr(sys, "frozen", False):
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from ape_pdf_studio.core.security_worker import limit_memory
+    from ape_pdf_studio.core.security_worker import require_memory_limit
     from ape_pdf_studio.core.security import MAX_FILE_BYTES
-    limit_memory()
+    require_memory_limit()
     try:
         magic, edge, index, length = REQUEST.unpack(sys.stdin.buffer.read(REQUEST.size))
         if magic not in (b"APR1", b"APQ1") or not 0 < length <= MAX_FILE_BYTES:

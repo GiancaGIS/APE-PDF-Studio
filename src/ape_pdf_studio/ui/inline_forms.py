@@ -67,6 +67,8 @@ class InlineForms(QObject):
                       if rect[2] > rect[0] and rect[3] > rect[1])
 
     def start(self, name=None, position=None, index=None, *, clicked=False):
+        if self.view.inline_text and not self.view.inline_text.deactivate():
+            return False
         entries = self.entries()
         if not entries:
             self.view.message.emit(tr("Il PDF è in sola lettura: i campi non possono essere modificati."))

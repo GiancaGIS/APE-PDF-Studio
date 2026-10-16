@@ -11,11 +11,16 @@ import sys
 
 from .errors import PDFPasswordRequired, PDFSecurityError
 from .worker_process import worker_command
+from .provenance import propagate_zone
 
 MAX_FILE_BYTES = 256 * 1024 * 1024
 MAX_PAGES = 3000
 MAX_OBJECTS = 100_000
-MAX_NODES = 200_000
+# Visits include scalar values, not just indirect PDF objects. Sparse structure
+# parent trees in ordinary tagged documents can alone contain 400,000+ nulls.
+# Keep a bounded full scan, with the independent object, depth, time and memory
+# limits still applying; never skip the remaining objects when a limit is hit.
+MAX_NODES = 2_000_000
 MAX_DEPTH = 64
 MAX_STREAM_BYTES = 32 * 1024 * 1024
 SCAN_TIMEOUT = 12
@@ -76,7 +81,18 @@ def copy_checked(source: Path, destination: Path):
         raise PDFSecurityError(tr("PDF bloccato: dimensione superiore al limite di 256 MiB."))
     created = False
     try:
-        with source.open("rb") as incoming, destination.open("xb") as outgoing:
+        from .sandbox import in_appcontainer
+        from .private_work import work_root
+        from .artifacts import open_artifact
+        context=None
+        if not in_appcontainer():
+            root=work_root()
+            original=source.absolute()
+            if original.is_relative_to(root):
+                parts=original.relative_to(root).parts
+                if len(parts)<2:raise PDFSecurityError('Snapshot fuori dalla sessione PDF.')
+                context=open_artifact(original,root/parts[0],MAX_FILE_BYTES)
+        with (context if context is not None else source.open('rb')) as incoming, destination.open("xb") as outgoing:
             created = True
             first = incoming.read(1024)
             if b"%PDF-" not in first:
@@ -88,6 +104,7 @@ def copy_checked(source: Path, destination: Path):
                 if total > MAX_FILE_BYTES:
                     raise PDFSecurityError(tr("PDF bloccato: dimensione superiore al limite di 256 MiB."))
                 outgoing.write(chunk)
+        propagate_zone(destination, source)
     except Exception:
         if created:
             destination.unlink(missing_ok=True)
@@ -96,14 +113,30 @@ def copy_checked(source: Path, destination: Path):
 
 def check_pdf(snapshot: Path, password: str | None = None) -> SecurityReport:
     """Run the preflight without loading Qt/PDFium or exposing passwords in argv."""
+    from .sandbox import in_appcontainer, sandbox_command
+    from .private_work import PrivateDirectory
+    if in_appcontainer():
+        from pypdf import PdfReader
+        configure_parser()
+        with PdfReader(snapshot) as reader:
+            if reader.is_encrypted and not reader.decrypt(password or ""):
+                raise PDFPasswordRequired(tr("Password necessaria o non corretta."))
+            report = SecurityReport(inspect_reader(reader), True)
+        if report.blocked:
+            raise PDFSecurityError(tr("Apertura bloccata dal controllo di sicurezza:\n\n") + report.summary)
+        return report
     try:
-        result = subprocess.run(
-            worker_command("security"),
-            input=json.dumps({"path": str(snapshot), "password": password}).encode("utf-8"),
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=SCAN_TIMEOUT,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            check=False,
-        )
+        # Never grant an AppContainer the parent of a user-selected file.
+        with PrivateDirectory() as work:
+            checked = Path(work)/"input.pdf"
+            copy_checked(snapshot, checked)
+            result = subprocess.run(
+                sandbox_command("security", work, timeout=SCAN_TIMEOUT*1000),
+                input=json.dumps({"path": str(checked), "password": password}).encode("utf-8"),
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=SCAN_TIMEOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                check=False,
+            )
     except subprocess.TimeoutExpired as exc:
         raise PDFSecurityError(tr("PDF bloccato: il controllo di sicurezza ha superato 12 secondi.")) from exc
     except OSError as exc:

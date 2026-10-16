@@ -17,6 +17,9 @@
 #include <cstring>
 #include <cstdio>
 #include "shell_ids.h"
+#include <sddl.h>
+#include <shlobj.h>
+#include "../windows_sandbox/sandbox.h"
 
 namespace {
 HINSTANCE module;
@@ -95,7 +98,32 @@ bool runWorker(const std::vector<BYTE>& pdf, const DWORD (&request)[4],
     std::wstring folder(path, length);
     folder.resize(folder.find_last_of(L"\\/"));
     std::wstring worker = folder + L"\\APEPDFWorker.exe";
-    std::wstring command = L"\"" + worker + L"\" shell";
+    std::wstring host=folder+L"\\APEPDFSandbox.exe";
+    // An empty private workspace is sufficient: PDF bytes use inherited pipes.
+    // LocalAppDataLow also supports Explorer preview hosts at low integrity.
+    PWSTR low=nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppDataLow,KF_FLAG_CREATE,nullptr,&low))) return false;
+    std::wstring base(low);CoTaskMemFree(low);
+    GUID guid{};wchar_t guidText[40]{};
+    if (FAILED(CoCreateGuid(&guid)) || !StringFromGUID2(guid,guidText,40)) return false;
+    std::wstring work=base+L"\\APE-PDF-Shell-"+guidText;
+    Handle token;
+    if (!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token.value)) return false;
+    DWORD size=0;GetTokenInformation(token.value,TokenUser,nullptr,0,&size);
+    std::vector<BYTE> user(size);
+    if (!GetTokenInformation(token.value,TokenUser,user.data(),size,&size)) return false;
+    LPWSTR sid=nullptr;
+    if (!ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid,&sid)) return false;
+    std::wstring sddl=L"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;"+std::wstring(sid)+L")S:(ML;OICI;NW;;;LW)";
+    LocalFree(sid);
+    PSECURITY_DESCRIPTOR descriptor=nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(),SDDL_REVISION_1,&descriptor,nullptr)) return false;
+    SECURITY_ATTRIBUTES directorySecurity{sizeof(directorySecurity),descriptor,FALSE};
+    bool created=!!CreateDirectoryW(work.c_str(),&directorySecurity);LocalFree(descriptor);
+    if (!created) return false;
+    struct WorkCleanup { std::wstring path; ~WorkCleanup(){RemoveDirectoryW(path.c_str());} } cleanup{work};
+    std::wstring command=ape_sandbox::quoted(host)+L" "+ape_sandbox::quoted(work)+L" 15000 20000000 2 "+
+        ape_sandbox::quoted(worker)+L" "+ape_sandbox::quoted(folder+L"\\_internal")+L" "+ape_sandbox::quoted(worker)+L" shell";
     SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
     Handle inputRead, inputWrite, outputRead, outputWrite;
     if (!CreatePipe(&inputRead.value, &inputWrite.value, &security, 0) ||
@@ -127,11 +155,11 @@ bool runWorker(const std::vector<BYTE>& pdf, const DWORD (&request)[4],
     Handle job(CreateJobObjectW(nullptr, nullptr));
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
     limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_ACTIVE_PROCESS;
-    limits.BasicLimitInformation.ActiveProcessLimit = 1;
+    limits.BasicLimitInformation.ActiveProcessLimit = 2; // Supervisor + its single sandboxed worker.
     limits.ProcessMemoryLimit = 768u * 1024u * 1024u;
     configured = configured && job.value && SetInformationJobObject(job.value, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
     PROCESS_INFORMATION process{};
-    BOOL launched = configured && CreateProcessW(worker.c_str(), command.data(), nullptr, nullptr, TRUE,
+    BOOL launched = configured && CreateProcessW(host.c_str(), command.data(), nullptr, nullptr, TRUE,
         CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT, nullptr, folder.c_str(), &startup.StartupInfo, &process);
     DeleteProcThreadAttributeList(attrList);
     if (!launched) { diagnostic("CreateProcess/job setup"); return false; }

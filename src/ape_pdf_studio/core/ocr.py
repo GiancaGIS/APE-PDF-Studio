@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from .private_work import PrivateDirectory
 from urllib.request import urlopen
 
 from pypdf import PdfReader, PdfWriter
@@ -26,6 +27,20 @@ MODEL_HASHES = {
     "eng": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
 }
 MAX_PIXELS = 16_000_000
+
+
+def stage_tessdata(language,cache_dir,destination,*,download=False):
+    """Broker-only: fetch fixed models, then grant the worker bounded copies."""
+    source=prepare_tessdata(language,cache_dir,download=download)
+    destination=Path(destination)
+    destination.mkdir(mode=0o777,exist_ok=True)
+    for code in language.split('+'):
+        with (source/f'{code}.traineddata').open('rb') as stream:
+            data=stream.read(8*1024*1024+1)
+        if not 0<len(data)<=8*1024*1024:
+            raise PDFOperationError('Modello OCR oltre il limite di sicurezza.')
+        (destination/f'{code}.traineddata').write_bytes(data)
+    return destination
 
 
 def prepare_tessdata(language, cache_dir, *, download=False, progress=None):
@@ -114,7 +129,7 @@ def recognize_pdf(source, destination, *, language="ita+eng", pages=None, dpi=30
         raise PDFOperationError(tr("Lingua o risoluzione OCR non valida."))
     notify = progress or (lambda *_: None)
     try:
-        with tempfile.TemporaryDirectory(prefix="apex_ocr_") as work:
+        with PrivateDirectory(prefix="apex_ocr_") as work:
             snapshot = Path(work) / "input.pdf"
             copy_checked(source, snapshot)
             try:
@@ -163,7 +178,7 @@ def recognize_pdf(source, destination, *, language="ita+eng", pages=None, dpi=30
                 writer.compress_identical_objects(remove_duplicates=False, remove_unreferenced=True)
                 writer.write(completed)
             check_pdf(completed)
-            atomic_copy(completed, destination)
+            atomic_copy(completed, destination, source)
             return result
     except PDFOperationError:
         raise
@@ -172,8 +187,8 @@ def recognize_pdf(source, destination, *, language="ita+eng", pages=None, dpi=30
 
 
 def main():
-    from .security_worker import limit_memory
-    limit_memory()
+    from .security_worker import require_memory_limit
+    require_memory_limit()
 
     def send(payload):
         print(json.dumps(payload, ensure_ascii=True), flush=True)

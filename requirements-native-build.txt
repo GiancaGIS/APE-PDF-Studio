@@ -1,0 +1,6 @@
+# Tools used for the Windows MuPDF/PyMuPDF source build (not shipped as runtime).
+pip==26.2.1
+pipcl==13
+packaging==26.3
+swig==4.5.1
+libclang==18.1.1

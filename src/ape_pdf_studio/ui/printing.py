@@ -131,6 +131,9 @@ def paint_tile(painter, document, tile, source_rect, geometry):
     painter.restore()
 
 
+from ..core.provenance import propagate_zone
+
+
 class PrintJob(QObject):
     progress = Signal(int, int)
     finished = Signal()
@@ -206,6 +209,8 @@ class PrintJob(QObject):
                 if self.output:
                     if not self._temporary.is_file() or self._temporary.stat().st_size == 0:
                         raise PDFOperationError(tr("La stampa su PDF non ha prodotto un file valido."))
+                    propagate_zone(self._temporary, self.path, self.output if self.output.exists() else None,
+                                   zone=getattr(getattr(self.document,'editor',None),'_zone',None))
                     os.replace(self._temporary, self.output)
                     self._temporary = None
                 self._stop()

@@ -25,9 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / ".dev-deps/legal/sources"
 LEGAL = ROOT / "build/windows/legal"
 REQUIRED_TEXTS = ("AGPL-3.0-only", "LGPL-3.0-only", "GPL-3.0-only", "GPL-2.0-only", "Apache-2.0")
-SOURCE_DIRS = ("src", "scripts", "native", "installer", "docs", "tests", "examples", "licenses")
+SOURCE_DIRS = ("src", "scripts", "native", "installer", "docs", "tests", "examples", "licenses", ".github")
 SOURCE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "SOURCE_CODE.md", "README.md",
-                "pyproject.toml", "requirements-release.txt", ".gitignore")
+                "pyproject.toml", "requirements-release.txt", "requirements-native-build.txt", ".gitignore")
 NOTICE_SCHEMA = 2
 
 
@@ -249,11 +249,12 @@ def source_records(installed, offline=False):
     for name, package in sorted(installed.items()):
         if name.startswith("pyside6") or name == "shiboken6":
             continue  # Covered by the Qt and PySide source archives above.
-        index = CACHE / f"{name}-{package.version}-pypi.json"
+        upstream_version='1.28.2' if name=='pymupdf' and package.version=='1.28.2.post1285' else package.version
+        index = CACHE / f"{name}-{upstream_version}-pypi.json"
         if offline:
             data = json.loads(index.read_text(encoding="utf-8"))
         else:
-            data = json.loads(read_url(f"https://pypi.org/pypi/{name}/{package.version}/json"))
+            data = json.loads(read_url(f"https://pypi.org/pypi/{name}/{upstream_version}/json"))
             index.write_text(json.dumps(data), encoding="utf-8")
         archives = [file for file in data["urls"] if file["packagetype"] == "sdist"]
         if len(archives) != 1:
@@ -261,6 +262,9 @@ def source_records(installed, offline=False):
         archive = archives[0]
         records.append({"component": name, "version": package.version, "url": archive["url"],
                         "filename": archive["filename"], "sha256": archive["digests"]["sha256"]})
+        if upstream_version!=package.version:
+            records[-1]['upstream_version']=upstream_version
+            records[-1]['derivation']='scripts/prepare_patched_mupdf.py; scripts/build_patched_mupdf.ps1; MuPDF 1.28.5'
     python_version = ".".join(map(str, sys.version_info[:3]))
     records.append({"component": "CPython", "version": python_version,
                     "url": f"https://www.python.org/ftp/python/{python_version}/Python-{python_version}.tar.xz",

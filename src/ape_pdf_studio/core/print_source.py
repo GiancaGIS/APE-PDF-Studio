@@ -2,19 +2,22 @@
 from .localization import tr
 from pathlib import Path
 import tempfile
+from .private_work import PrivateDirectory
 
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ArrayObject, NameObject, NumberObject
 
 from .errors import PDFOperationError
 from .form_appearance import bake_widgets
+from .provenance import propagate_zone
 
 
 class PrintSource:
     def __init__(self, source, password=None):
-        self._temp = tempfile.TemporaryDirectory(prefix="apex_print_")
+        self._temp = PrivateDirectory(prefix="apex_print_")
         self.original = Path(self._temp.name) / "source.pdf"
         self.original.write_bytes(Path(source).read_bytes())
+        propagate_zone(self.original, source)
         self.password = password
         self._copies = {}
 
@@ -44,6 +47,7 @@ class PrintSource:
                     added.pop("/Annots", None)
             bake_widgets(writer, printing=True)
             writer.write(destination)
+        propagate_zone(destination, self.original)
         self._copies[comments] = destination
         return destination
 

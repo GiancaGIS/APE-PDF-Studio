@@ -7,8 +7,9 @@ import math
 from pathlib import Path
 import sys
 import tempfile
+from ..core.private_work import PrivateDirectory
 
-from PySide6.QtCore import QObject, QIODevice, QProcess, QSaveFile, QSize, Qt, Signal
+from PySide6.QtCore import QObject, QIODevice, QProcess, QSaveFile, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QImageWriter, QPainter
 from PySide6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 
@@ -16,6 +17,8 @@ from ..core.docx_export import atomic_copy
 from ..core.editor import PDFOperationError
 from ..core.security import copy_checked
 from ..core.worker_process import worker_command
+from .worker_guard import WorkerGuard
+from ..core.sandbox import wrap_command
 
 
 def export_page_image(pdf: QPdfDocument, page: int, destination: Path, dpi: int = 150) -> None:
@@ -45,16 +48,15 @@ def export_page_image(pdf: QPdfDocument, page: int, destination: Path, dpi: int 
     image = paper
     image.setDotsPerMeterX(round(dpi / 0.0254))
     image.setDotsPerMeterY(round(dpi / 0.0254))
-    output = QSaveFile(str(destination))
-    if not output.open(QIODevice.OpenModeFlag.WriteOnly):
-        raise PDFOperationError(tr("Impossibile scrivere l'immagine: {0}", output.errorString()))
-    writer = QImageWriter(output, formats[destination.suffix.lower()])
-    writer.setQuality(95)
-    if not writer.write(image):
-        output.cancelWriting()
-        raise PDFOperationError(tr("Impossibile salvare l'immagine: {0}", writer.errorString()))
-    if not output.commit():
-        raise PDFOperationError(tr("Impossibile salvare l'immagine: {0}", output.errorString()))
+    with PrivateDirectory() as folder:
+        staged=Path(folder)/('image'+destination.suffix)
+        writer=QImageWriter(str(staged),formats[destination.suffix.lower()])
+        writer.setQuality(95)
+        if not writer.write(image):
+            raise PDFOperationError(tr("Impossibile salvare l'immagine: {0}",writer.errorString()))
+        origin=getattr(pdf,'source',None)
+        atomic_copy(staged,destination,origin,zone=getattr(getattr(pdf,'editor',None),'_zone',None))
+
 
 
 class DocxExportJob(QObject):
@@ -64,10 +66,12 @@ class DocxExportJob(QObject):
     cancelled = Signal()
     finished = Signal()
 
-    def __init__(self, source: Path, destination: Path, parent=None):
+    def __init__(self, source: Path, destination: Path, parent=None, *, zone=None):
         super().__init__(parent)
         self.destination = Path(destination).resolve()
-        self._work = tempfile.TemporaryDirectory(prefix="apex_word_job_")
+        from ..core.provenance import read_zone
+        self._zone=zone if zone is not None else read_zone(Path(source))
+        self._work = PrivateDirectory(prefix="apex_word_job_")
         self.snapshot = Path(self._work.name) / "snapshot.pdf"
         self.result_path = Path(self._work.name) / "result.docx"
         try:
@@ -84,10 +88,17 @@ class DocxExportJob(QObject):
         self.process.readyReadStandardOutput.connect(self._read)
         self.process.finished.connect(self._complete)
         self.process.errorOccurred.connect(self._process_error)
+        self.guard = WorkerGuard(self)
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(180_000)
+        self.timer.timeout.connect(lambda: self.guard.fail(tr("La conversione Word ha superato il tempo limite per una pagina.")))
 
     def start(self):
         # QProcess uses redirected pipes and does not open a console window.
-        command = worker_command("docx", str(self.snapshot), str(self.result_path))
+        self.timer.start()
+        self.guard.start()
+        command = wrap_command(worker_command("docx", str(self.snapshot), str(self.result_path)), self._work.name, timeout=600000)
         self.process.start(command[0], command[1:])
 
     def cancel(self):
@@ -96,16 +107,9 @@ class DocxExportJob(QObject):
             self.process.kill()
 
     def _read(self):
-        self._buffer += bytes(self.process.readAllStandardOutput())
-        while b"\n" in self._buffer:
-            line, self._buffer = self._buffer.split(b"\n", 1)
-            try:
-                payload = json.loads(line)
-            except (ValueError, UnicodeDecodeError):
-                continue
-            if not isinstance(payload, dict):
-                continue
+        for payload in self.guard.read():
             if "progress" in payload:
+                self.timer.start()
                 self.progress.emit(payload["progress"], payload["total"], payload["label"])
             elif "result" in payload:
                 self._result = payload["result"]
@@ -122,12 +126,14 @@ class DocxExportJob(QObject):
             return
         self._finished = True
         self._read()
+        self.timer.stop()
+        self.guard.stop()
         try:
             if self._cancelled:
                 self.cancelled.emit()
-            elif exit_code == 0 and exit_status == QProcess.ExitStatus.NormalExit and self._result is not None and self.result_path.is_file():
+            elif exit_code == 0 and exit_status == QProcess.ExitStatus.NormalExit and self._result is not None and self.guard.result_ready():
                 try:
-                    atomic_copy(self.result_path, self.destination)
+                    atomic_copy(self.result_path, self.destination, artifact_root=Path(self._work.name),zone=self._zone)
                 except OSError as exc:
                     self.failed.emit(tr('Impossibile salvare il DOCX: {0}', exc))
                 else:

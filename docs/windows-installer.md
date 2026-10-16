@@ -126,7 +126,7 @@ Per compilare da terminale, puoi personalizzare le definizioni:
 
 ```powershell
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-  "/DAppVersion=1.0.2" `
+  "/DAppVersion=1.1.0" `
   "/DDistDir=C:\Build\APEPDFStudio" `
   "/DOutputDir=C:\Build\Installers" `
   "/DLicensePath=C:\Build\LICENSE" `
@@ -141,19 +141,19 @@ Esempi da eseguire sul PC di destinazione:
 
 ```powershell
 # Locale, cartella personalizzata
-.\APEPDFStudio-1.0.2-Setup-x64.exe /CURRENTUSER /DIR="D:\Applicazioni\APE PDF Studio"
+.\APEPDFStudio-1.1.0-Setup-x64.exe /CURRENTUSER /DIR="D:\Applicazioni\APE PDF Studio"
 
 # Program Files, tutti gli utenti (richiede amministratore)
-.\APEPDFStudio-1.0.2-Setup-x64.exe /ALLUSERS
+.\APEPDFStudio-1.1.0-Setup-x64.exe /ALLUSERS
 
 # Installazione locale automatizzata
-.\APEPDFStudio-1.0.2-Setup-x64.exe /CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+.\APEPDFStudio-1.1.0-Setup-x64.exe /CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
 
 # Registra anche APE tra i lettori PDF (la scelta predefinita resta all'utente)
-.\APEPDFStudio-1.0.2-Setup-x64.exe /CURRENTUSER /TASKS="pdfassociation"
+.\APEPDFStudio-1.1.0-Setup-x64.exe /CURRENTUSER /TASKS="pdfassociation"
 
 # Rende disponibile ape-pdf-cli nei nuovi terminali
-.\APEPDFStudio-1.0.2-Setup-x64.exe /CURRENTUSER /TASKS="clipath"
+.\APEPDFStudio-1.1.0-Setup-x64.exe /CURRENTUSER /TASKS="clipath"
 ```
 
 La modalita silenziosa omette le pagine interattive, compresa la schermata della licenza; usala solo quando l'accettazione e gia gestita dalla tua procedura di distribuzione. I [parametri Inno Setup](https://jrsoftware.org/ishelp/topic_setupcmdline.htm) consentono anche `/LOG="percorso.log"` e `/TASKS="desktopicon,clipath,pdfassociation,pdfthumbnails,pdfpreview"`. La modalità silenziosa registra i PDF se `pdfassociation` è selezionato, ma non apre le impostazioni Windows e non cambia automaticamente il lettore predefinito. `/TASKS=""` deseleziona tutte le opzioni in una nuova installazione.

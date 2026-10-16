@@ -147,9 +147,11 @@ class PropertiesDialog(QDialog):
             "Limiti di ingresso: 256 MiB, 3000 pagine; controllo entro 12 secondi.\n")
             + (tr("Limite di memoria del processo di controllo: 768 MiB.\n") if report.memory_limited else
                tr("Il sistema non ha consentito il limite di memoria del processo di controllo.\n")) +
-            tr("\nQuesto controllo non certifica che il PDF sia innocuo e non sostituisce un antivirus. "
-            "Il motore di visualizzazione resta nel processo dell'applicazione: "
-            "non è presente una sandbox del sistema operativo.")
+            tr("\nQuesto controllo non certifica che il PDF sia innocuo e non sostituisce un antivirus. ") +
+            (tr("Su Windows, lettura, rendering, ricerca e modifiche vengono eseguiti in AppContainer, senza capacità di rete né processi figli. Il worker accede alla propria cartella privata e al runtime autorizzato. La GUI riceve pixel e dati validati. Anche conversioni e integrazione Explorer usano worker isolati.")
+             if __import__('os').name=='nt' else
+             tr("Su questa piattaforma sono applicati limiti dei processi, ma non è disponibile la sandbox AppContainer di Windows."))
+
         )
         self.tabs.addTab(self.security_details, tr("Sicurezza"))
         layout.addWidget(self.tabs, 1)

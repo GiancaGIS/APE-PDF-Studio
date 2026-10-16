@@ -15,6 +15,8 @@ from . import __version__
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    from .core.private_work import cleanup_stale
+    cleanup_stale()
     if sys.platform == "win32":
         # Match installed shortcuts and distinguish the app from its Python host.
         import ctypes

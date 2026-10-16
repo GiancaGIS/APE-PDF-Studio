@@ -28,7 +28,8 @@ def main():
     worker = bundle / "APEPDFWorker.exe"
     gui = bundle / "APEPDFStudio.exe"
     cli = bundle / "ape-pdf-cli.exe"
-    if not all(executable.is_file() for executable in (worker, gui, cli)):
+    sandbox = bundle / 'APEPDFSandbox.exe'
+    if not all(executable.is_file() for executable in (worker, gui, cli,sandbox)):
         raise RuntimeError("Eseguibili mancanti. Esegui prima la build PyInstaller.")
     models = args.tessdata
     if models is None:
@@ -79,8 +80,14 @@ def main():
             environment = {**os.environ, "PYTHONPATH": str(work)}
             if language is not None:
                 environment["APE_UI_LANGUAGE"] = language
+            if request and 'path' in request and not Path(request['path']).resolve().is_relative_to(work):
+                from uuid import uuid4
+                snapshot=work/(uuid4().hex+'.pdf')
+                shutil.copyfile(request['path'],snapshot)
+                request={**request,'path':str(snapshot)}
+            command=[str(sandbox),str(work),'60000','4194304','2',str(worker),str(bundle/'_internal'),str(worker),kind,*map(str,arguments)]
             result = subprocess.run(
-                [str(worker), kind, *map(str, arguments)],
+                command,
                 input=json.dumps(request).encode() if request is not None else None,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -215,8 +222,10 @@ def main():
         stalled.mkdir()
         shutil.copyfile(shell_dll, stalled / shell_dll.name)
         shutil.copyfile(args.shell_host, stalled / "APEPDFWorker.exe")
+        shutil.copyfile(sandbox,stalled/'APEPDFSandbox.exe')
+        (stalled/'_internal').mkdir()
         shell_check(shell_source, "--reject", dll=stalled / shell_dll.name)
-        passed("COM miniature e anteprima: pagine, resize, annullamento, low integrity, PDF bloccati e timeout")
+        passed("COM miniature e anteprima AppContainer: pagine, resize, annullamento, rifiuto host low IL, PDF bloccati e timeout")
 
         metadata_source = work / "Metadati con spazi e accenti è.pdf"
         metadata_writer = PdfWriter(clone_from=PdfReader(source))
@@ -232,8 +241,10 @@ def main():
         metadata_writer.encrypt("", owner_password="owner-secret", algorithm="AES-256")
         metadata_writer.write(restricted_metadata)
         shell_check(restricted_metadata, "--metadata")
+        (stalled/'_internal/invalid-metadata-response').touch()
         shell_check(metadata_source, "--metadata-blocked", dll=stalled / shell_dll.name,
                     environment={**os.environ, "APE_FAKE_METADATA_RESPONSE": "1"})
+        (stalled/'_internal/invalid-metadata-response').unlink()
         shell_check(metadata_source, "--metadata-blocked", dll=stalled / shell_dll.name)
         if metadata_source.read_bytes() != original_metadata_pdf:
             raise RuntimeError("La scheda Metadati PDF ha modificato il documento.")
@@ -256,7 +267,9 @@ def main():
 
         svg, layers = work / "page.svg", work / "layers.json"
         run("vector", request={"path": str(source), "page": 0, "output": str(svg), "layers": str(layers)})
-        if b"<svg" not in svg.read_bytes() or not json.loads(layers.read_text(encoding="utf-8")):
+        from ape_pdf_studio.core.vector_protocol import validate
+        drawing=validate(json.loads(svg.read_bytes()))
+        if not drawing['layers']:
             raise RuntimeError("Conversione vettoriale fallita.")
         passed("Rendering vettoriale")
 
@@ -277,9 +290,12 @@ def main():
         request = work / "ocr.json"
         request.write_text(json.dumps({
             "source": str(ocr_source), "destination": str(recognized),
-            "cache_dir": str(models.resolve() if models else work / "no_models"),
+            "cache_dir": str(work/'tessdata'),
             "language": "ita+eng", "download": False,
         }), encoding="utf-8")
+        if models:
+            from ape_pdf_studio.core.ocr import stage_tessdata
+            stage_tessdata('ita+eng',models,work/'tessdata',download=False)
         run("ocr", (request,))
         with PdfReader(recognized) as doc:
             text = doc.pages[0].extract_text()
@@ -290,7 +306,7 @@ def main():
         for name in ("modulo_da_preparare.pdf","modulo_da_preparare_scansione.pdf"):
             flat = root / "examples" / name
             result = json.loads(run("form_detect",request=dict(path=str(flat),pages=[0],
-                cache_dir=str(models or work/"no_models"),use_ocr=models is not None)))
+                cache_dir=str(work/'tessdata'),use_ocr=models is not None)))
             proposals = result.get("proposals",[])
             if len(proposals)!=5 or sum(p.get("kind")=="checkbox" for p in proposals)!=1:
                 raise RuntimeError(f"Riconoscimento campi fallito: {name}")

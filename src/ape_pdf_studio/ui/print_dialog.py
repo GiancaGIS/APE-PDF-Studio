@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from ..core.errors import PDFOperationError
 from ..core.print_source import PrintSource
+from .remote_pdf import RemoteDocument, RemotePrintSource
 from .icons import icon
 from .printing import (PrintJob, PrintOptions, copy_sequence, paint_tile,
                       printer_geometry, raster_plan, selected_pages)
@@ -94,8 +95,8 @@ class PrintDialog(QDialog):
         self.resize(1040, 780)
         self.tab = tab
         self.settings = parent.settings if parent else None
-        self.source = PrintSource(tab.editor.path, tab.pdf.password())
-        self.document = QPdfDocument(self)
+        self.source = RemotePrintSource(tab.editor)
+        self.document = RemoteDocument(tab.editor, self)
         self._buffer = QBuffer(self)
         self.printer = None
         self.job = None
@@ -407,9 +408,7 @@ class PrintDialog(QDialog):
             self._buffer.close()
             path = self.source.path(key)
             # Loading from QFile retains a Windows handle beyond close() in QtPdf.
-            self._buffer.setData(path.read_bytes())
-            self._buffer.open(QIODevice.OpenModeFlag.ReadOnly)
-            self.document.load(self._buffer)
+            self.document.load(path)
             if self.document.status() != QPdfDocument.Status.Ready:
                 raise PDFOperationError(tr("Impossibile preparare il documento per la stampa."))
             self._loaded = key

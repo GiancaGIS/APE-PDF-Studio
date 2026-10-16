@@ -40,6 +40,9 @@ legal_dir = root / "build/windows/legal"
 if not (legal_dir / "source-manifest.json").is_file():
     raise FileNotFoundError("Prepare verified licenses and sources with scripts/prepare_release.py")
 shell_dll = root / "build/windows/shell/APEPDFShell.dll"
+sandbox_exe = root / "build/windows/sandbox/APEPDFSandbox.exe"
+if not sandbox_exe.is_file():
+    raise FileNotFoundError("Build the AppContainer launcher with scripts/build_windows_sandbox.ps1")
 if not shell_dll.is_file():
     raise FileNotFoundError("Build the native shell extension with scripts/build_windows_shell.ps1")
 datas += collect_data_files("ape_pdf_studio", includes=["locales/*.json", "assets/*"])
@@ -86,6 +89,7 @@ COLLECT(gui, worker, cli, analysis.binaries, analysis.datas,
 # COM must find the DLL beside the helper, outside PyInstaller's _internal.
 import shutil
 shutil.copy2(shell_dll, Path(DISTPATH) / "APEPDFStudio/APEPDFShell.dll")
+shutil.copy2(sandbox_exe, Path(DISTPATH) / "APEPDFStudio/APEPDFSandbox.exe")
 bundle = Path(DISTPATH) / "APEPDFStudio"
 shutil.copytree(legal_dir, bundle / "licenses", dirs_exist_ok=True)
 for document in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "SOURCE_CODE.md"):

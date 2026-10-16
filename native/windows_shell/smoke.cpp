@@ -56,7 +56,9 @@ int wmain(int argc, wchar_t** argv) {
     // A copy of this test host can stand in for an intentionally stalled helper.
     if (argc == 2 && wcscmp(argv[1], L"shell") == 0) {
         wchar_t fake[2];
-        if (GetEnvironmentVariableW(L"APE_FAKE_METADATA_RESPONSE", fake, ARRAYSIZE(fake))) {
+        wchar_t executable[32768]{};GetModuleFileNameW(nullptr,executable,ARRAYSIZE(executable));
+        std::wstring fixture(executable);fixture.resize(fixture.find_last_of(L"\\/"));fixture+=L"\\_internal\\invalid-metadata-response";
+        if (GetEnvironmentVariableW(L"APE_FAKE_METADATA_RESPONSE", fake, ARRAYSIZE(fake)) || GetFileAttributesW(fixture.c_str())!=INVALID_FILE_ATTRIBUTES) {
             BYTE buffer[65536]; DWORD got;
             while (ReadFile(GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &got, nullptr) && got) {}
             DWORD invalid[] = {0x314d5041, 0, 17, 0xffffffff, 0}, written;
@@ -65,8 +67,12 @@ int wmain(int argc, wchar_t** argv) {
         Sleep(INFINITE); return 1;
     }
     if (argc < 3) return 2;
-    bool reject = argc > 3 && wcscmp(argv[3], L"--reject") == 0;
+    bool reject = argc > 3 && (wcscmp(argv[3], L"--reject") == 0 || wcscmp(argv[3], L"--low") == 0);
     bool metadata = argc > 3 && wcsncmp(argv[3], L"--metadata", 10) == 0;
+    // Explorer opens the selected file before handing its stream to a low-IL
+    // preview host. Preserve that model: low IL must not reopen a private path.
+    HANDLE fixture=metadata?INVALID_HANDLE_VALUE:CreateFileW(argv[2],GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
+    if (!metadata && fixture==INVALID_HANDLE_VALUE) return 5;
     HDESK originalDesktop = GetThreadDesktop(GetCurrentThreadId()), metadataDesktop = nullptr;
     if (metadata) {
         std::wstring name = L"APE.MetadataSmoke." + std::to_wstring(GetCurrentProcessId());
@@ -96,7 +102,7 @@ int wmain(int argc, wchar_t** argv) {
             metadataSmoke(factoryEntry, unloadEntry, argv[2], argv[3]);
             std::puts("Metadata COM checks passed");
         } else {
-        HANDLE input = CreateFileW(argv[2], GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        HANDLE input = fixture;
         require(input != INVALID_HANDLE_VALUE, "open fixture");
         DWORD size = GetFileSize(input, nullptr), got = 0;
         std::vector<BYTE> bytes(size);

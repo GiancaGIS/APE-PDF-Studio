@@ -12,26 +12,38 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from .private_work import PrivateDirectory
 from typing import Callable
 
 from .editor import PDFOperationError
 from .errors import PDFPasswordRequired
 from .security import check_pdf, copy_checked
+from .provenance import propagate_zone
 
 
-def atomic_copy(source: Path, destination: Path) -> None:
+def atomic_copy(source: Path, destination: Path, *origins, artifact_root=None, zone=None) -> None:
     """Commit a completed export without exposing a partial destination."""
     import shutil
 
+    from .worker_protocol import MAX_RESULT_BYTES
+    if not source.is_file() or source.is_symlink() or getattr(source.lstat(),'st_file_attributes',0)&0x400 or not 0<source.stat().st_size<=MAX_RESULT_BYTES:
+        raise PDFOperationError('Output non valido o superiore al limite di sicurezza.')
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(prefix=".apex_export_", suffix=destination.suffix,
                                          dir=destination.parent, delete=False) as stream:
             temporary = Path(stream.name)
-            with source.open("rb") as reader:
-                shutil.copyfileobj(reader, stream)
+            from .artifacts import open_artifact
+            context=open_artifact(source,artifact_root,MAX_RESULT_BYTES) if artifact_root else source.open('rb')
+            with context as reader:
+                copied=0
+                while chunk:=reader.read(65536):
+                    copied+=len(chunk)
+                    if copied>MAX_RESULT_BYTES:raise PDFOperationError('Output superiore al limite di sicurezza.')
+                    stream.write(chunk)
             stream.flush()
             os.fsync(stream.fileno())
+        propagate_zone(temporary, *(origins if artifact_root else (source,*origins)), destination if destination.exists() else None, zone=zone)
         os.replace(temporary, destination)
     finally:
         if temporary is not None:
@@ -85,7 +97,7 @@ def convert_pdf_to_docx(source: str | Path, destination: str | Path,
         raise PDFOperationError(tr("Conversione Word non disponibile. Aggiorna le dipendenze con lo script di avvio.")) from exc
 
     converter = None
-    with tempfile.TemporaryDirectory(prefix="apex_docx_") as work:
+    with PrivateDirectory(prefix="apex_docx_") as work:
         try:
             snapshot = Path(work) / "input.pdf"
             copy_checked(source, snapshot)
@@ -126,7 +138,7 @@ def convert_pdf_to_docx(source: str | Path, destination: str | Path,
             notify(total, total, tr("Salvataggio del documento Word…"))
             completed = Path(work) / "converted.docx"
             document.save(completed)
-            atomic_copy(completed, destination)
+            atomic_copy(completed, destination, source)
             return {"pages": total, "image_pages": image_pages}
         except PDFOperationError:
             raise
@@ -138,6 +150,8 @@ def convert_pdf_to_docx(source: str | Path, destination: str | Path,
 
 
 def main() -> int:
+    from .security_worker import require_memory_limit
+    require_memory_limit()
     def send(payload):
         print(json.dumps(payload, ensure_ascii=True), flush=True)
 
