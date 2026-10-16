@@ -39,6 +39,7 @@ from .settings_dialog import SettingsDialog
 from .theme import DEFAULT_THEME, apply_theme, normalize_theme, theme_color
 from .toast import CompletionToast
 from .content_dialogs import NoteDialog, TextEditDialog
+from .split_dialog import SplitDialog
 from .print_dialog import PrintDialog
 from .ocr import OcrDialog, OcrJob
 from .language import configure_language
@@ -187,6 +188,7 @@ class MainWindow(QMainWindow):
         self.a_save_current = self._action(tr("Salva"), self.save, "Ctrl+S", edit=True)
         self.a_print = self._action(tr("Stampa…"), self.print_document, "Ctrl+P", doc=True)
         self.a_extract = self._action(tr("Estrai pagine…"), self.extract_pages, "Ctrl+E", edit=True)
+        self.a_split = self._action(tr("Dividi PDF…"), self.split_pdf, edit=True)
         self.a_export_image = self._action(tr("Esporta pagina come immagine…"), self.export_image, edit=True)
         self.a_export_docx = self._action(tr("Esporta tutto il PDF in Word…"), self.export_docx, edit=True)
         self.a_exit = self._action(tr("Esci"), self.close, "Ctrl+Q")
@@ -199,7 +201,8 @@ class MainWindow(QMainWindow):
         self.a_down = self._action(tr("Sposta pagina giù"), lambda: self._edit("move", self.current.page, 1), edit=True)
         self.a_insert = self._action(tr("Inserisci altro PDF…"), self.insert_pdf, edit=True)
         self.a_note = self._action(tr("Aggiungi nota…"), self.add_note, "Ctrl+M", edit=True)
-        self.a_edit_text = self._action(tr("Modifica testo…"), lambda: self.current.viewer.begin_placement("text"), edit=True)
+        self.a_edit_text = self._action(tr("Modifica testo…"), lambda: self.current.inline_text.toggle(), edit=True)
+        self.a_edit_text.setCheckable(True)
         self.a_ocr = self._action(tr("Riconosci testo (OCR)…"), self.recognize_text, edit=True)
         self.a_form = self._action(tr("Compila modulo"), self.fill_form, "Ctrl+Shift+F", doc=True)
         self.a_prepare_form = self._action(tr("Prepara modulo…"), self.prepare_form, doc=True)
@@ -221,8 +224,8 @@ class MainWindow(QMainWindow):
         self.a_sidebar = self._action(tr("Pannello laterale"), self.toggle_sidebar, doc=True)
         self.a_info = self._action(tr("Proprietà documento…"), lambda: self.current.notice.show_details(), "Ctrl+I", doc=True)
         icon_names = {"open": "open", "save_current": "save", "save": "save", "print": "print", "undo": "undo", "redo": "redo",
-                      "rotate": "rotate", "delete": "delete", "note": "note", "copy": "copy",
-                      "highlight": "highlight", "underline": "underline", "insert": "insert", "extract": "extract",
+                      "rotate": "rotate", "delete": "delete", "note": "note", "copy": "copy", "edit_text": "edit_text",
+                      "highlight": "highlight", "underline": "underline", "insert": "insert", "extract": "extract", "split": "split",
                       "prev": "prev", "next": "next", "zoom_out": "minus", "zoom_in": "plus",
                       "fit_width": "width", "fit_page": "page", "find": "search", "find_prev": "up", "find_next": "down", "sidebar": "sidebar", "info": "info"}
         for name, glyph in icon_names.items():
@@ -237,7 +240,7 @@ class MainWindow(QMainWindow):
 
     def _build_menus(self) -> None:
         menu_file = self.menuBar().addMenu(tr("File"))
-        for a in (self.a_open, self.a_close, self.a_save_current, self.a_save, self.a_extract, self.a_print, self.a_info, self.a_exit):
+        for a in (self.a_open, self.a_close, self.a_save_current, self.a_save, self.a_extract, self.a_split, self.a_print, self.a_info, self.a_exit):
             menu_file.addAction(a)
         exports = QMenu(tr("Esporta"), menu_file)
         exports.addActions([self.a_export_image, self.a_export_docx])
@@ -286,6 +289,9 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self.a_undo)
         toolbar.addAction(self.a_redo)
+        toolbar.addAction(self.a_edit_text)
+        self.a_edit_text.setIconText(tr("Modifica testo"))
+        toolbar.widgetForAction(self.a_edit_text).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.annotate_button = QToolButton()
         self.annotate_button.setText(tr("Annota"))
         self.annotate_button.setIcon(icon("highlight"))
@@ -308,7 +314,7 @@ class MainWindow(QMainWindow):
         pages.addSeparator()
         pages.addActions([self.a_up, self.a_down, self.a_delete])
         pages.addSeparator()
-        pages.addActions([self.a_insert, self.a_extract, self.a_export_image])
+        pages.addActions([self.a_insert, self.a_extract, self.a_split, self.a_export_image])
         self.pages_button.setMenu(pages)
         self.pages_control = toolbar.addWidget(self.pages_button)
         spacer = QWidget()
@@ -493,6 +499,7 @@ class MainWindow(QMainWindow):
         for action in self._edit_actions:
             action.setEnabled(tab is not None and not tab.editor.encrypted)
         self.a_form.setEnabled(tab is not None and bool(tab.form_fields))
+        self.a_edit_text.setChecked(tab is not None and tab.inline_text.active)
         preparing = tab is not None and tab.form_designer.isVisible()
         self.a_prepare_form.setEnabled(tab is not None and not tab.editor.encrypted)
         if preparing:
@@ -836,7 +843,8 @@ class MainWindow(QMainWindow):
         tab = self.current if tab is None or isinstance(tab, bool) else tab
         if tab is None or self.current is not tab or not tab.form_fields:
             return
-
+        if not tab.inline_text.deactivate():
+            return
         tab.inline_form.start(name)
 
     def prepare_form(self):
@@ -911,21 +919,7 @@ class MainWindow(QMainWindow):
     def edit_text_at(self, tab, page, point):
         if tab.editor.encrypted:
             return
-        try:
-            target = tab.editor.text_at(page, (point.x(), point.y()))
-        except PDFOperationError as exc:
-            self.statusBar().showMessage(str(exc), 7000)
-            return
-        tab.viewer.edit_target = page, target.display_bbox
-        tab.viewer.viewport().update()
-        dialog = TextEditDialog(tab.editor.path, target,
-                                lambda text, size: tab.apply_edit("replace_text", target, text, size), self)
-        try:
-            dialog.exec()
-        finally:
-            tab.viewer.edit_target = None
-            tab.viewer.viewport().update()
-            dialog.deleteLater()
+        tab.inline_text.start(page, point)
 
     @staticmethod
     def _choose_output_name(source: Path, suffix: str) -> str:
@@ -1005,7 +999,7 @@ class MainWindow(QMainWindow):
 
     def extract_pages(self) -> None:
         tab = self.current
-        if not tab:
+        if not tab or not tab.finish_form():
             return
         spec, ok = QInputDialog.getText(
             self, tr("Estrai pagine"), tr('Pagine disponibili: 1–{0}. Inserisci, ad esempio, 1,3-5:', tab.count),
@@ -1025,6 +1019,23 @@ class MainWindow(QMainWindow):
             if self._output_available(path, tab) and self._confirm_overwrite(path):
                 self._run(lambda: tab.editor.extract(pages, path), tr('Pagine estratte in {0}', path),
                           output=path, notification=tr("Pagine PDF esportate"))
+
+    def split_pdf(self) -> None:
+        tab = self.current
+        if not tab or tab.editor.encrypted or not tab.finish_form():
+            return
+        if tab.count < 2:
+            QMessageBox.information(self, tr("Dividi PDF"), tr("Servono almeno due pagine per dividere il PDF."))
+            return
+        dialog = SplitDialog(tab.editor, tab.count, self)
+        try:
+            if dialog.exec() and dialog.outputs:
+                folder = dialog.outputs[0].parent
+                self.statusBar().showMessage(tr("Creati {0} PDF in {1}", len(dialog.outputs), folder), 7000)
+                self.toast.show_completion(tr("PDF diviso"), folder,
+                                           tr("{0} file PDF creati", len(dialog.outputs)))
+        finally:
+            dialog.deleteLater()
 
     def export_image(self) -> None:
         tab = self.current
@@ -1078,7 +1089,7 @@ class MainWindow(QMainWindow):
         if not self._output_available(path, tab) or not self._confirm_overwrite(path):
             return
         try:
-            job = DocxExportJob(tab.editor.path, path, self)
+            job = DocxExportJob(tab.editor.path, path, self, zone=tab.editor._zone)
         except OSError as exc:
             QMessageBox.warning(self, tr("Esportazione Word"), tr('Impossibile preparare il PDF: {0}', exc))
             return

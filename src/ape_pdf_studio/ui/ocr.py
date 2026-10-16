@@ -7,8 +7,9 @@ import json
 import logging
 from pathlib import Path
 import tempfile
+from ..core.private_work import PrivateDirectory
 
-from PySide6.QtCore import QObject, QProcess, QStandardPaths, QTimer, Signal
+from PySide6.QtCore import QObject, QProcess, QStandardPaths, QTimer, Signal, QThreadPool
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
     QLabel, QLineEdit, QMessageBox, QVBoxLayout,
@@ -109,7 +110,11 @@ def default_ocr_cache():
     return current
 
 
+from .worker_guard import WorkerGuard
+
+
 class OcrJob(QObject):
+    models_ready = Signal(str)
     progress = Signal(int, int, str)
     succeeded = Signal(str, object)
     failed = Signal(str)
@@ -120,17 +125,19 @@ class OcrJob(QObject):
                  download=True, cache_dir=None, parent=None):
         super().__init__(parent)
         self.revision = Path(source)
-        self._work = tempfile.TemporaryDirectory(prefix="apex_ocr_job_")
+        self._work = PrivateDirectory(prefix="apex_ocr_job_")
         self.snapshot = Path(self._work.name) / "snapshot.pdf"
         self.result_path = Path(self._work.name) / "result.pdf"
         self.request_path = Path(self._work.name) / "request.json"
         try:
             copy_checked(self.revision, self.snapshot)
             cache = Path(cache_dir) if cache_dir is not None else default_ocr_cache()
+            self._models=(language,cache,download)
+            self._preparing=False
             self.request_path.write_text(json.dumps({
                 "source": str(self.snapshot), "destination": str(self.result_path),
                 "language": language, "pages": pages, "dpi": dpi,
-                "download": download, "cache_dir": str(cache),
+                "download": False, "cache_dir": str(Path(self._work.name)/'tessdata'),
             }), encoding="utf-8")
         except Exception:
             self._work.cleanup()
@@ -144,18 +151,52 @@ class OcrJob(QObject):
         self.process.readyReadStandardOutput.connect(self._read)
         self.process.finished.connect(self._complete)
         self.process.errorOccurred.connect(self._process_error)
+        self.guard = WorkerGuard(self)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(180_000)
         self.timer.timeout.connect(self._timeout)
+        self.models_ready.connect(self._launch)
 
     def start(self):
         if self._cancelled:
             self._complete(-1, QProcess.ExitStatus.CrashExit)
             return
+        try:
+            raw=worker_command('ocr',str(self.request_path))
+            if not raw or not Path(raw[0]).is_file():raise OSError('Worker executable missing')
+            from ..core.sandbox import wrap_command
+            self._command=wrap_command(raw,self._work.name,timeout=600000)
+        except Exception:
+            self._error=tr('Impossibile avviare l\'OCR: ')+'runtime non disponibile'
+            self._complete(-1,QProcess.ExitStatus.CrashExit)
+            return
         self.timer.start()
-        command = worker_command("ocr", str(self.request_path))
-        self.process.start(command[0], command[1:])
+        self.guard.start()
+        self._preparing=True
+        from .remote_pdf import Task
+        def prepare():
+            try:
+                from ..core.ocr import stage_tessdata
+                language,cache,download=self._models
+                stage_tessdata(language,cache,Path(self._work.name)/'tessdata',download=download)
+                error=''
+            except Exception as exc:error=str(exc)[:4096]
+            self.models_ready.emit(error)
+        QThreadPool.globalInstance().start(Task(prepare))
+
+    def _launch(self,error):
+        self._preparing=False
+        if self._cancelled or error or self._error:
+            self._error=self._error or error
+            self._complete(-1,QProcess.ExitStatus.CrashExit)
+            return
+        try:
+            command=self._command
+            self.process.start(command[0],command[1:])
+        except Exception as exc:
+            self._error=str(exc)
+            self._complete(-1,QProcess.ExitStatus.CrashExit)
 
     def cancel(self):
         self._cancelled = True
@@ -167,15 +208,7 @@ class OcrJob(QObject):
         self.process.kill()
 
     def _read(self):
-        self._buffer += bytes(self.process.readAllStandardOutput())
-        while b"\n" in self._buffer:
-            line, self._buffer = self._buffer.split(b"\n", 1)
-            try:
-                payload = json.loads(line)
-            except (ValueError, UnicodeDecodeError):
-                continue
-            if not isinstance(payload, dict):
-                continue
+        for payload in self.guard.read():
             if "progress" in payload:
                 self.timer.start()
                 self.progress.emit(payload["progress"], payload["total"], payload["label"])
@@ -195,10 +228,11 @@ class OcrJob(QObject):
         self._finished = True
         self._read()
         self.timer.stop()
+        self.guard.stop()
         try:
             if self._cancelled:
                 self.cancelled.emit()
-            elif exit_code == 0 and exit_status == QProcess.ExitStatus.NormalExit and isinstance(self._result, dict) and self.result_path.is_file():
+            elif exit_code == 0 and exit_status == QProcess.ExitStatus.NormalExit and isinstance(self._result, dict) and self.guard.result_ready():
                 # The editor imports this result synchronously before temporary cleanup.
                 self.succeeded.emit(str(self.result_path), self._result)
             else:

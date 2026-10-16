@@ -6,7 +6,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from .editor import PDFEditor, PDFOperationError, parse_page_range
+from .editor import parse_page_range
+from .errors import PDFOperationError
+from .broker_editor import BrokerEditor as PDFEditor
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -49,13 +51,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         editor = PDFEditor(args.input)
         if args.command == "info":
-            from pypdf import PdfReader
-            reader = PdfReader(editor.path)
             print(tr('File: {0}', args.input.resolve()))
             print(tr('Protetto: {0}', tr('Sì') if editor.encrypted else tr('No')))
             if not editor.encrypted:
-                print(tr('Pagine: {0}', len(reader.pages)))
-            reader.close()
+                print(tr('Pagine: {0}', editor.metadata().page_count))
             return 0
         if args.command == "rotate":
             editor.rotate(args.page - 1, args.degrees)
@@ -68,10 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "note":
             editor.add_note(args.page - 1, args.text)
         elif args.command == "extract":
-            from pypdf import PdfReader
-            source = PdfReader(editor.path)
-            pages = parse_page_range(args.pages, len(source.pages))
-            source.close()
+            pages = parse_page_range(args.pages, editor.metadata().page_count)
             editor.extract(pages, args.output)
             print(tr('Creato: {0}', args.output.resolve()))
             return 0

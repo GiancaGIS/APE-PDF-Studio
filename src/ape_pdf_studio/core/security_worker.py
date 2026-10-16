@@ -39,6 +39,12 @@ def limit_memory():
         kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
         kernel.GetCurrentProcess.restype = wintypes.HANDLE
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p]
+        current = Extended()
+        if kernel.QueryInformationJobObject(None, 9, ctypes.byref(current), ctypes.sizeof(current), None):
+            flags = current.BasicLimitInformation.LimitFlags
+            if flags & 0x100 and 0 < current.ProcessMemoryLimit <= limit:
+                return True  # Parent-enforced limit cannot be relaxed by the worker.
         job = kernel.CreateJobObjectW(None, None)
         if not job:
             return False
@@ -54,8 +60,14 @@ def limit_memory():
         return False
 
 
+def require_memory_limit():
+    if not limit_memory():
+        raise RuntimeError("Cannot enforce the PDF worker memory limit")
+    return True
+
+
 def main():
-    memory_limited = limit_memory()
+    memory_limited = require_memory_limit()
     # -I ignores PYTHONPATH and the current directory. Import only our application
     # source directory and the interpreter's installed dependencies.
     if not getattr(sys, "frozen", False):

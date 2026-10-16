@@ -9,6 +9,7 @@ from PySide6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions, QPdfPageRende
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem, QStyledItemDelegate
 
 from .theme import theme_color
+from .remote_pdf import RemoteRenderer
 
 
 class ThumbnailDelegate(QStyledItemDelegate):
@@ -64,7 +65,7 @@ class ThumbnailList(QListWidget):
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.render_visible)
-        self._renderer = QPdfPageRenderer(self)
+        self._renderer = RemoteRenderer(self)
         self._renderer.setRenderMode(QPdfPageRenderer.RenderMode.MultiThreaded)
         self._renderer.setDocument(document)
         self._renderer.pageRendered.connect(self._rendered)

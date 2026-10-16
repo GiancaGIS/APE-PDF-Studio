@@ -75,17 +75,17 @@ def small_release(tmp_path, monkeypatch):
     source.write_text("print('release')\n")
     upstream = cache / "upstream.tar.gz"
     upstream.write_bytes(b"original upstream archive")
-    manifest = {"version": "1.0.2", "application_files": {"app.py": release_tools.digest(source)},
+    manifest = {"version": "1.1.0", "application_files": {"app.py": release_tools.digest(source)},
                 "archives": [{"filename": upstream.name, "sha256": release_tools.digest(upstream)}]}
     for path in (legal, bundle / "licenses"):
         (path / "source-manifest.json").write_text(json.dumps(manifest))
-    (legal / "dependency-manifest.json").write_text('{"version": "1.0.2"}')
+    (legal / "dependency-manifest.json").write_text('{"version": "1.1.0"}')
     (legal / "SOURCE_CODE.md").write_text("Rebuild instructions")
     monkeypatch.setattr(release_tools, "ROOT", root)
     monkeypatch.setattr(release_tools, "LEGAL", legal)
     monkeypatch.setattr(release_tools, "CACHE", cache)
     monkeypatch.setattr(release_tools, "project_files", lambda: [source])
-    monkeypatch.setattr(release_tools, "verify_legal", lambda path: {"version": "1.0.2"})
+    monkeypatch.setattr(release_tools, "verify_legal", lambda path: {"version": "1.1.0"})
     return SimpleNamespace(root=root, legal=legal, cache=cache, bundle=bundle, manifest=manifest, output=tmp_path / "release")
 
 
@@ -106,18 +106,18 @@ def test_release_refuses_manifest_from_another_bundle(small_release):
 def test_release_archives_and_final_checksums_match_installer(small_release):
     release = small_release
     release_tools.release(release.bundle, release.output)
-    with zipfile.ZipFile(release.output / "APEPDFStudio-1.0.2-Source.zip") as archive:
-        assert archive.read("APE-PDF-Studio-1.0.2/app.py") == (release.root / "app.py").read_bytes()
-    with zipfile.ZipFile(release.output / "APEPDFStudio-1.0.2-DependencySources.zip") as archive:
+    with zipfile.ZipFile(release.output / "APEPDFStudio-1.1.0-Source.zip") as archive:
+        assert archive.read("APE-PDF-Studio-1.1.0/app.py") == (release.root / "app.py").read_bytes()
+    with zipfile.ZipFile(release.output / "APEPDFStudio-1.1.0-DependencySources.zip") as archive:
         assert archive.read("sources/upstream.tar.gz") == (release.cache / "upstream.tar.gz").read_bytes()
-    installer = release.root / "APEPDFStudio-1.0.2-Setup-x64.exe"
+    installer = release.root / "APEPDFStudio-1.1.0-Setup-x64.exe"
     installer.write_bytes(b"matching installer")
     release_tools.release(release.bundle, release.output, installer)
-    sums = (release.output / "APEPDFStudio-1.0.2-SHA256SUMS.txt").read_text().splitlines()
+    sums = (release.output / "APEPDFStudio-1.1.0-SHA256SUMS.txt").read_text().splitlines()
     assert len(sums) == 3
     assert sums[0] == f"{release_tools.digest(installer)}  {installer.name}"
     assert "at no additional charge" in (release.output / "RELEASE_NOTES.md").read_text()
-    with (release.output / "APEPDFStudio-1.0.2-Source.zip").open("ab") as archive:
+    with (release.output / "APEPDFStudio-1.1.0-Source.zip").open("ab") as archive:
         archive.write(b"tampering")
     with pytest.raises(RuntimeError, match="source asset was changed"):
         release_tools.release(release.bundle, release.output, installer)
@@ -129,19 +129,19 @@ def test_bundle_inventory_rejects_stale_metadata_and_video_codec(tmp_path):
     for name in release_tools.REQUIRED_TEXTS:
         shutil.copyfile(release_tools.ROOT / "licenses" / (name + ".txt"), legal / (name + ".txt"))
     shutil.copyfile(release_tools.ROOT / "LICENSE", legal / "LICENSE")
-    (legal / "dependency-manifest.json").write_text('{"version": "1.0.2", "license": "AGPL-3.0-only", "dependencies": [{"name": "pypdf", "version": "6.19.0"}]}')
+    (legal / "dependency-manifest.json").write_text('{"version": "1.1.0", "license": "AGPL-3.0-only", "dependencies": [{"name": "pypdf", "version": "6.19.0"}]}')
     (legal / "upstream-notices.json").write_text("[]")
     package = tmp_path / "_internal/pypdf-6.19.0.dist-info"
     package.mkdir(parents=True)
     (package / "METADATA").write_text("Metadata-Version: 2.1\nName: pypdf\nVersion: 6.19.0\n")
-    application = tmp_path / "_internal/ape_pdf_studio-1.0.2.dist-info"
+    application = tmp_path / "_internal/ape_pdf_studio-1.1.0.dist-info"
     application.mkdir()
-    (application / "METADATA").write_text("Metadata-Version: 2.4\nName: ape-pdf-studio\nVersion: 1.0.2\nLicense-Expression: AGPL-3.0-only\n")
+    (application / "METADATA").write_text("Metadata-Version: 2.4\nName: ape-pdf-studio\nVersion: 1.1.0\nLicense-Expression: AGPL-3.0-only\n")
     release_tools.verify_legal(tmp_path)
-    (application / "METADATA").write_text("Metadata-Version: 2.4\nName: ape-pdf-studio\nVersion: 1.0.2\nLicense-Expression: MIT\n")
+    (application / "METADATA").write_text("Metadata-Version: 2.4\nName: ape-pdf-studio\nVersion: 1.1.0\nLicense-Expression: MIT\n")
     with pytest.raises(RuntimeError, match="application license"):
         release_tools.verify_legal(tmp_path)
-    (application / "METADATA").write_text("Metadata-Version: 2.4\nName: ape-pdf-studio\nVersion: 1.0.2\nLicense-Expression: AGPL-3.0-only\n")
+    (application / "METADATA").write_text("Metadata-Version: 2.4\nName: ape-pdf-studio\nVersion: 1.1.0\nLicense-Expression: AGPL-3.0-only\n")
     (package / "METADATA").write_text("Metadata-Version: 2.1\nName: pypdf\nVersion: 5.0.0\n")
     with pytest.raises(RuntimeError, match="Unexpected/stale"):
         release_tools.verify_legal(tmp_path)

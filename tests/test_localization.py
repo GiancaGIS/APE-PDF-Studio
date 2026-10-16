@@ -97,8 +97,7 @@ def test_saved_language_translates_window_and_dialogs(app, preferences, text_pdf
         assert ocr.language.currentData() == "ita+eng"  # OCR language is independent.
         properties = PropertiesDialog(window.current.editor, lambda changes: None, window)
         assert properties.tabs.tabText(0) == metadata
-        with window.current.editor._reader() as reader:
-            assert "Alpha beta PDF page 1" in reader.pages[0].extract_text()
+        assert "Alpha beta PDF page 1" in window.current.pdf.getAllText(0).text()
     finally:
         for index in reversed(range(window.tabs.count())):
             window.tabs.widget(index).close_document()

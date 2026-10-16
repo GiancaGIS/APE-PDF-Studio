@@ -10,6 +10,9 @@ def main() -> int:
         print("Indica un processo: security, vector, docx, ocr oppure shell.", file=sys.stderr)
         return 2
     kind = sys.argv.pop(1)
+    if kind == "rpc":
+        from .rpc_worker import main as run
+        return run()
     if kind == "shell":
         from .shell_worker import main as run
         return run()

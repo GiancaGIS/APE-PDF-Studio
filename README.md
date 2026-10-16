@@ -28,7 +28,7 @@
 | A workspace for… | What you can do |
 | --- | --- |
 | **Reading** | Open multiple PDFs in tabs, navigate with thumbnails and bookmarks, search the whole document, and select or copy text. |
-| **Editing** | Rotate, reorder, insert, delete, and extract pages; add notes, highlights, and underlines; replace supported existing text spans. |
+| **Editing** | Rotate, reorder, insert, delete, and extract pages; split PDFs by page, every N pages, or custom ranges; add notes, highlights, and underlines; replace supported existing text spans. |
 | **PDF forms** | Fill static AcroForm text, checkboxes, radio groups and choices; save editable fields and undo or redo changes. |
 | **Searchable scans** | Recognize Italian, English, or both with local OCR and an invisible text layer. |
 | **Exporting** | Save pages as PNG/JPEG or convert the complete PDF to an editable Word document. |
@@ -50,12 +50,15 @@ Run the helper from the project folder:
 .\scripts\run_windows.bat
 ```
 
-It creates a `.venv`, installs the dependencies, and starts the app. For manual setup, use **Python 3.11 or later**:
+It prepares `.venv-build`, the corrected MuPDF build and the native Windows sandbox, then starts the app. Source builds require **CPython 3.14.5 x64, Visual Studio C++ Build Tools and Windows SDK**. The standalone installer includes the required runtime. For manual setup:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m ape_pdf_studio
+py -3.14 -m venv .venv-build
+.\scripts\build_patched_mupdf.ps1 -PythonExe .\.venv-build\Scripts\python.exe
+.\.venv-build\Scripts\python.exe -m pip install --find-links .dev-deps/patched-wheels -r requirements-release.txt -e ".[dev]"
+.\scripts\build_windows_sandbox.ps1
+.\.venv-build\Scripts\python.exe scripts/prepare_sandbox_runtime.py
+.\.venv-build\Scripts\python.exe -m ape_pdf_studio
 ```
 
 Once installed in your active Python environment, launch with `ape-pdf-studio` or `python -m ape_pdf_studio`. You can also pass a PDF directly:
@@ -151,7 +154,7 @@ The application icon is included in the window, executables, installer, and shor
 - Move a page up or down one position from **Edit**.
 - Insert another PDF after the current page.
 - Add text notes, highlight selected text, or underline it.
-- Use **Annotate → Edit text…** to replace a supported existing text span within its original space. Font substitution can change its appearance; scans and complex text layouts need other workflows.
+- Use **Edit text → Paragraph reflow** to edit a recognized paragraph and wrap words within its column. Disable reflow to edit a single span. Font substitution can change its appearance; scans require OCR.
 - Extract ranges such as `1,3-5`.
 - Export the current page as an image from **Pages**, **File → Export**, or its thumbnail context menu.
 - Undo and redo page edits and annotations.
@@ -213,6 +216,12 @@ The original stays unchanged while you edit. Private copies and revisions live i
 
 **Save as** can target the original file, but overwriting requires confirmation and history retains the previous revision. Writes use a temporary file in the destination folder followed by `os.replace`. You cannot export over a file belonging to another open tab, or extract pages over the current document.
 
+**Split PDF** is available from **File** and **Pages**. Choose one file per page, every N pages (including the final shorter group), or custom groups such as `1-3; 4,6; 5,7-10`. Custom groups must include every page exactly once. Preview the files and select a destination folder: the current revision, including applied form values and edits, is exported into a new `PDF_split` subfolder with numbered files. Existing folders receive a numeric suffix; existing PDFs are never overwritten. Cancellation or a failed export removes the files created by that split. The original document and its undo history remain intact. PDF parsing continues in the isolated worker, and Windows Internet provenance is retained.
+
+**Edit text** activates direct editing on the PDF page. **Paragraph reflow** is enabled by default: click a recognized text box and edit multiple lines in place. Words wrap using PDF font metrics within the original column width, and the paragraph can grow into free space below. The editor supports explicit line breaks, first-line/continuation indents, left/center/right/justified alignment and retained inline font, size and RGB style runs. New text inherits a nearby source style; unavailable fonts use a compatible fallback. Enter inserts a line break; Ctrl+Enter applies. Escape discards a draft, and a second Escape exits the mode. Ctrl+S commits a valid draft before saving. Disable reflow for the previous single-span workflow, where Enter applies.
+
+Paragraph recognition is geometric and conservative: native text blocks, different columns, large gaps, headings and list items remain separate. Growth stops before other text, graphics, widgets, containing backgrounds or the page boundary. Overflow keeps the draft open and leaves the PDF revision unchanged; it never silently shrinks, clips or spills text onto another page. Editing supports horizontal text and simple writing systems, up to 16000 characters and 32 font/style combinations per paragraph. The editing field uses locally available screen fonts; the PDF's fonts and the worker's metrics determine the saved layout. Fields follow zoom and scrolling, drafts stay with their tab, and applied edits support undo/redo. Parsing, layout and font inspection stay in the sandbox; catalog data, other pages, forms, links, metadata and attachments remain preserved. This is paragraph-local reflow, matching the scope [described by Adobe](https://helpx.adobe.com/acrobat/using/edit-text-pdfs1.html), rather than whole-document repagination. Scans require OCR. Try [the paragraph example](examples/riflusso_paragrafi.pdf), generated by `scripts/generate_paragraph_example.py`.
+
 Closing an edited document offers **Save**, **Discard**, and **Cancel**. Temporary revisions are not retained after closing. Encrypted PDFs are opened read-only; editing and export are disabled. The app requests a password only when one is required to read the document. PDFs protected only against modification (an owner password with an empty opening/user password) open directly without a password prompt and retain their protection.
 
 ### Metadata
@@ -239,11 +248,17 @@ Use **Annotate → Prepare form…** or **Edit → Prepare form…** (**Annota �
 
 Suggestions are highlighted directly on the page. Select a box to edit its unique name, label, type, multiline setting and dimensions. Drag a box to move it, or drag its lower-right handle to resize it. Choose **Draw text field** or **Draw checkbox** and drag on the page to add a missed field. Delete a suggestion with the panel button or **Delete** while the page is focused. **Esc** cancels an unfinished drawing. Blank table cells and decorative boxes can be false positives: review every suggestion.
 
-Select **Create fields…** and confirm to create standard, script-free AcroForm fields as one undoable edit. Close preparation, fill fields directly on the page, then **Save / Save as**. Closing preparation with uncreated suggestions asks whether to discard them. Existing fields and values, metadata and document structures are preserved; duplicate names, substantially overlapping boxes and stale revisions are rejected. Protected PDFs retain the read-only policy. This first version creates text fields and checkboxes; it does not infer radio groups, dropdown choices or automatic calculations.
+Select **Create fields…** and confirm to create standard, script-free AcroForm fields as one undoable edit. Close preparation, fill fields directly on the page, then **Save / Save as**. Closing preparation with uncreated suggestions asks whether to discard them. Existing fields and values, metadata and document structures are preserved; duplicate names, substantially overlapping boxes and stale revisions are rejected. Protected PDFs retain the read-only policy. Detection suggests text fields and checkboxes; choices can be configured manually. Radio groups and automatic calculations are not inferred.
 
 Try the flat [digital example](examples/modulo_da_preparare.pdf) and [scanned example](examples/modulo_da_preparare_scansione.pdf). Both intentionally start without interactive fields and can be regenerated with `python scripts/generate_form_preparation_example.py`.
 
-Analysis runs in a separate, cancellable worker with a 90-second deadline and the existing 768 MiB process memory limit where supported. Raster analysis is limited to 4 million pixels per page, and the result protocol is bounded to 2 MB. Suggestions alone do not modify the PDF; creation uses the existing checked revision and atomic save workflow. These limits are resource containment, not an operating-system sandbox.
+Analysis runs in a separate, cancellable worker with a 90-second deadline and a mandatory 768 MiB process memory limit. On Windows it uses AppContainer without network access. Raster analysis is limited to 4 million pixels per page, and the result protocol is bounded to 2 MB. Suggestions alone do not modify the PDF; creation uses the existing checked revision and atomic save workflow.
+
+### Modify existing fields
+
+Open **Annotate → Prepare form…** to select an existing field directly on the page or in the panel. Change its type to **Text**, **Checkbox**, **Dropdown** or **Choice list**; edit its name, label, multiline, required/read-only settings and geometry. For choices, enter one option per line, either `value` or `value | display label`. Existing export values and labels are retained unless edited. Radio groups already present can retain their type or be converted to another supported type; creating new radio groups is not supported. Signature fields and action buttons are excluded, and encrypted documents remain read-only.
+
+Repeated widgets share a field: changes to name, type and other properties apply to every instance, while movement and resizing affect the selected widget. Rename only the final component of a hierarchical name. **Delete field** removes all its instances. **Apply changes…** previews an explicit confirmation and commits editing, deletion and additions as one undoable operation. Changing type resets the field's current and default values; removing choice options drops selections that are no longer valid. Unrelated values and document structures are retained. Close preparation to fill the revised form on the page, then **Save / Save as**. Closing with pending edits asks whether to discard them.
 
 ### Fill existing forms
 
@@ -259,7 +274,7 @@ Implementation follows the [pypdf form API](https://pypdf.readthedocs.io/en/stab
 
 ## Security checks and resource limits
 
-The preventive check is always enabled, including in the CLI. Before interpreting a PDF in the main process, the app creates a size-bounded private snapshot and checks those same bytes in a separate Python process. Passwords are sent through standard input and do not appear in command-line arguments. The source security worker ignores `PYTHONPATH` and the current directory when importing modules; compiled workers use their bundled code.
+The preventive check is always enabled, including in the CLI. The broker creates a size-bounded private snapshot; the isolated worker checks those same bytes before rendering or editing them. The main process does not interpret the PDF. Passwords are sent through standard input and do not appear in command-line arguments. Source workers ignore `PYTHONPATH` and the current directory when importing modules; compiled workers use their bundled code.
 
 Structural analysis visits the catalog, pages, annotations, forms, references, and xref objects, including compressed objects. It does not execute JavaScript, PDF actions, or attachments. Recognized active content blocks opening, with no interface bypass. A blocked file contains unsupported content or failed a check; **blocking does not prove the presence of malware**. The original stays intact.
 
@@ -278,21 +293,21 @@ Attachments may remain in saved PDFs; they are not stripped or disinfected. Sign
 | Page count | 3,000 |
 | Page dimensions | Up to 200 inches |
 | PDF objects | 100,000 |
-| Object visits / nesting depth | 200,000 / 64 |
+| Object visits / nesting depth | 2,000,000 / 64 |
 | Security check duration | 12 seconds |
 | Streams and decompression | 32 MiB |
 | XMP input | 1 MB |
-| Security worker memory | 768 MiB, where the system permits it |
+| Each worker memory | 768 MiB; operation blocked if the limit cannot be applied |
 
 The [pypdf configuration limits](https://pypdf.readthedocs.io/en/latest/modules/configuration.html) bound stream decompression and XMP processing. The worker uses a Windows Job Object or `RLIMIT_AS` where supported; **Security** reports whether its memory limit was applied.
 
-Vector rendering retains up to three SVG display lists, each limited to 12 MiB and 100,000 elements. These budgets do not measure native Qt tree memory. Compatibility rendering uses tiles of up to 1024 × 1024 pixels, a 64 MiB cache, and at most two pending requests. Resolution follows zoom and display pixel ratio; exceptionally large viewports limit the visible raster plan to 12 megapixels.
+Vector rendering retains up to three validated drawing lists, limited to 12 MiB each, with bounded paths, numeric transforms, clips and solid colors. PDF-derived SVG is interpreted only inside the worker. Compatibility rendering uses tiles of up to 1024 × 1024 pixels, a 64 MiB cache, and at most two pending requests. Resolution follows zoom and display pixel ratio; exceptionally large viewports limit the visible raster plan to 12 megapixels.
 
 </details>
 
-**This is neither antivirus software nor an operating-system sandbox.** Separate processes retain the user's permissions and have no dedicated network or filesystem restrictions. QtPdf/PDFium rendering, SVG drawing, MuPDF text inspection/replacement, and later pypdf operations still run in the main process. Vector preparation and Word conversion use separate processes but are not sandboxed.
+**On Windows, PDF processing uses AppContainer.** Rendering, search, editing, forms, printing preparation and conversions run in workers without network capabilities or child processes, with access to their own private workspace and approved code. The GUI receives validated pixels, drawing commands and typed data. Explorer's adapter acts as a medium-integrity broker for its AppContainer child; low-integrity hosts that cannot create the sandbox fail closed. This changes APE's preview-host registration and requires the updated installer.
 
-The limits are not a global memory cap for rendering or conversion. Parser exploits can pass structural checks. Keep dependencies updated and use an isolated environment for suspicious documents. A complete sandbox would require separating rendering, search, and editing and adding native platform restrictions. Large or complex legitimate files can also exceed the limits. Windows has been verified; macOS behavior and memory limits need platform testing.
+This is not antivirus software or a guarantee against unknown exploits. Memory limits apply per worker; disk quotas are preventive/periodic checks. Private session cleanup and Windows Internet-zone propagation protect temporary and derived files. The build includes pypdf 6.20.1 and native MuPDF 1.28.5. Other platforms do not receive the Windows OS sandbox. See [security architecture, dependency recipe, test limits and signing procedure](docs/security-hardening.md). Signed releases require a code-signing certificate; development builds remain unsigned.
 
 ## Keyboard shortcuts
 

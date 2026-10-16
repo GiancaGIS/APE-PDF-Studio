@@ -13,9 +13,10 @@ from PySide6.QtWidgets import QApplication, QFrame, QMenu
 from .theme import theme_color
 from .page_tiles import CACHE_BYTES, MAX_PENDING, viewport_plan
 from .vector_pages import VectorPages
+from .remote_pdf import RemotePdfView, RemoteRenderer
 
 
-class TextPdfView(QPdfView):
+class TextPdfView(RemotePdfView):
     selection_changed = Signal(bool)
     markup_requested = Signal(str)
     message = Signal(str)
@@ -42,6 +43,7 @@ class TextPdfView(QPdfView):
         self.links = {}
         self.form_fields = ()
         self.inline_form = None
+        self.inline_text = None
         self.form_designer = None
         self._interaction_click = None
         self._interaction_start = None
@@ -91,7 +93,7 @@ class TextPdfView(QPdfView):
         self._geometry_key = None
         document = self.document()
         if document and document.status() == QPdfDocument.Status.Ready:
-            self._renderer = QPdfPageRenderer(self)
+            self._renderer = RemoteRenderer(self)
             self._renderer.setRenderMode(QPdfPageRenderer.RenderMode.MultiThreaded)
             self._renderer.setDocument(document)
             epoch = self._render_epoch
@@ -227,6 +229,12 @@ class TextPdfView(QPdfView):
                 self.form_designer.press(hit,event.position())
                 event.accept()
                 return
+            if self.inline_text and self.inline_text.active:
+                self.clear_selection()
+                if hit:
+                    self.text_edit_requested.emit(*hit)
+                event.accept()
+                return
             if self._placement:
                 if hit:
                     kind = self._placement
@@ -356,6 +364,12 @@ class TextPdfView(QPdfView):
     def begin_placement(self, kind):
         if not self.editable:
             return
+        if self.inline_text:
+            if kind == "text":
+                self.inline_text.activate()
+                return
+            if not self.inline_text.deactivate():
+                return
         self._stop_pan()
         self._anchor = None
         self._placement = kind
@@ -463,6 +477,13 @@ class TextPdfView(QPdfView):
             self.select_page_text()
             event.accept()
         elif event.key() == Qt.Key.Key_Escape:
+            if self.inline_text and self.inline_text.active:
+                if self.inline_text.control is not None or self.inline_text._loading:
+                    self.inline_text.cancel()
+                else:
+                    self.inline_text.deactivate()
+                event.accept()
+                return
             if self._placement:
                 self._cancel_placement()
             elif self._pan_position is not None:
@@ -476,7 +497,15 @@ class TextPdfView(QPdfView):
     def make_context_menu(self, page=None, point=None):
         menu = QMenu(self)
         if self.form_designer and self.form_designer.isVisible():
-            menu.addAction(tr("Elimina proposta"),self.form_designer.remove_selected)
+            panel = self.form_designer
+            if page is not None and point is not None:
+                index = next((i for i in reversed(range(len(panel.proposals))) if panel.proposals[i]["page"] == page and
+                    QRectF(panel.proposals[i]["rect"][0], panel.proposals[i]["rect"][1],
+                           panel.proposals[i]["rect"][2]-panel.proposals[i]["rect"][0],
+                           panel.proposals[i]["rect"][3]-panel.proposals[i]["rect"][1]).contains(point)), -1)
+                panel.select(index, navigate=False)
+            if panel.selected >= 0:
+                menu.addAction(tr("Elimina campo") if "source" in panel.proposals[panel.selected] else tr("Elimina proposta"), panel.remove_selected)
             return menu
         if point is not None and page is not None:
             viewport_point = self.page_transform(page).map(point)
@@ -493,8 +522,9 @@ class TextPdfView(QPdfView):
             add_note = menu.addAction(tr("Aggiungi nota qui…"), lambda: self.note_requested.emit(page, point))
             add_note.setEnabled(self.editable)
             edit_text = menu.addAction(tr("Modifica testo…"), lambda: self.text_edit_requested.emit(page, point))
-            edit_text.setEnabled(self.editable and self.document().getSelection(page, point, point).startIndex() >= 0
-                                 and bool(self.document().getAllText(page).text().strip()))
+            # Resolve editability asynchronously after opening the text dialog.
+            # Context menus must not wait for the rendering worker's RPC lock.
+            edit_text.setEnabled(self.editable)
             menu.addSeparator()
         copy = menu.addAction(tr("Copia testo selezionato"), self.copy_selection)
         copy.setEnabled(self.has_selection)
@@ -624,6 +654,11 @@ class TextPdfView(QPdfView):
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.setPen(QPen(QColor(theme_color("accent")), 2))
                 painter.drawRect(transform.mapRect(QRectF(left, top, right - left, bottom - top)))
+            if self.inline_text and self.inline_text.active:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(QColor(theme_color("accent")), 1, Qt.PenStyle.DashLine))
+                for left, top, right, bottom in self.inline_text.boxes.get(page, []):
+                    painter.drawRect(transform.mapRect(QRectF(left, top, right - left, bottom - top)))
             model = self.searchModel()
             if model and model.searchString():
                 for result in model.resultsOnPage(page):

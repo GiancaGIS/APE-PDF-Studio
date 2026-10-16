@@ -25,6 +25,8 @@ from .metadata import EDITABLE_FIELDS, MetadataSnapshot, read_metadata, valid_xm
 from .errors import PDFOperationError, PDFPasswordRequired, PDFSecurityError
 from .security import SecurityReport, check_pdf, configure_parser, copy_checked
 from .page_coordinates import to_pdf, from_pdf, displayed_size
+from .provenance import propagate_zone
+from .private_work import PrivateDirectory, check_budget
 
 
 class PDFEditor:
@@ -34,7 +36,7 @@ class PDFEditor:
         self.source = Path(source).expanduser().resolve()
         if not self.source.is_file() or self.source.suffix.lower() != ".pdf":
             raise PDFOperationError(tr("Seleziona un file PDF esistente."))
-        self._temp = tempfile.TemporaryDirectory(prefix="ape_pdf_studio_")
+        self._temp = PrivateDirectory()
         original = Path(self._temp.name) / "original.pdf"
         try:
             copy_checked(self.source, original)
@@ -104,7 +106,8 @@ class PDFEditor:
         if metadata is not None and "/Metadata" not in writer.root_object:
             writer.root_object[NameObject("/Metadata")] = metadata.clone(writer)
 
-    def _commit(self, transform: Callable[[PdfWriter, PdfReader], None], *, copy_metadata: bool = True) -> None:
+    def _commit(self, transform: Callable[[PdfWriter, PdfReader], None], *, copy_metadata: bool = True, origins=()) -> None:
+        check_budget(Path(self._temp.name), self.path.stat().st_size)
         reader = self._reader()
         candidate = Path(self._temp.name) / f"rev_{uuid4().hex}.pdf"
         try:
@@ -116,6 +119,8 @@ class PDFEditor:
                 self._copy_metadata(writer, reader)
             with candidate.open("wb") as stream:
                 writer.write(stream)
+            propagate_zone(candidate, self.path, *origins)
+            check_budget(Path(self._temp.name))
             # Combined pages and generated content must still satisfy the input
             # policy before the revision is parsed or passed to the renderer.
             report = check_pdf(candidate)
@@ -231,6 +236,27 @@ class PDFEditor:
 
         self._commit(op, copy_metadata=False)
 
+    def form_design(self):
+        from .form_edit import design_fields
+        with self._reader() as reader:
+            return design_fields(reader)
+
+    def update_form_fields(self, proposals: list, deleted: list, revision: str | Path) -> None:
+        from .form_edit import apply_design, design_fields, validate_design
+        if Path(revision) != self.path:
+            raise PDFOperationError(tr("Il documento è cambiato. Ripeti la preparazione del modulo."))
+        with self._reader() as reader:
+            proposals = validate_design(reader, proposals, deleted)
+            if not deleted and proposals == design_fields(reader):
+                return
+
+        def op(writer, reader):
+            writer.clone_document_from_reader(reader)
+            writer.pdf_header = reader.pdf_header
+            apply_design(writer, proposals, deleted)
+
+        self._commit(op, copy_metadata=False)
+
     def delete(self, page: int) -> None:
         def op(writer: PdfWriter, reader: PdfReader) -> None:
             count = len(reader.pages)
@@ -280,11 +306,11 @@ class PDFEditor:
             finally:
                 other.close()
 
-        with tempfile.TemporaryDirectory(prefix="incoming_", dir=self._temp.name) as work:
+        with PrivateDirectory(dir=self._temp.name) as work:
             snapshot = Path(work) / "input.pdf"
             copy_checked(incoming, snapshot)
             report = check_pdf(snapshot)
-            self._commit(op)
+            self._commit(op, origins=(snapshot,))
         self.security_report = SecurityReport(tuple(sorted(set(self.security_report.findings) | set(report.findings))),
                                               self.security_report.memory_limited and report.memory_limited)
 
@@ -415,11 +441,56 @@ class PDFEditor:
             writer = PdfWriter()
             for page in pages:
                 self._valid_page(page, len(reader.pages))
-                writer.add_page(reader.pages[page])
+            # Append also rebuilds AcroForm fields for the selected widgets.
+            # add_page alone leaves form controls without a document field tree.
+            writer.append(reader, pages=pages, import_outline=False)
             self._copy_metadata(writer, reader)
             return self._atomic_write(writer, Path(destination))
         finally:
             reader.close()
+
+    def paragraph_at(self, page, position):
+        from .paragraph_edit import paragraph_at
+        if self.encrypted:
+            raise PDFOperationError(tr("I PDF protetti sono in sola lettura."))
+        with self._reader() as reader:
+            self._valid_page(page, len(reader.pages))
+        return paragraph_at(self.path, page, position)
+
+    def paragraph_boxes(self, page):
+        from .paragraph_edit import paragraph_boxes
+        if self.encrypted:
+            raise PDFOperationError(tr("I PDF protetti sono in sola lettura."))
+        with self._reader() as reader:
+            self._valid_page(page, len(reader.pages))
+        return paragraph_boxes(self.path, page)
+
+    def paragraph_info(self, target, text, size, alignment):
+        from .paragraph_edit import paragraph_info
+        if target.revision != str(self.path):
+            raise PDFOperationError(tr("Il documento è cambiato. Seleziona nuovamente il testo."))
+        return paragraph_info(self.path, target, text, size, alignment)
+
+    def replace_paragraph(self, target, text, size=None, alignment=None):
+        from .paragraph_edit import replace_paragraph
+        if target.revision != str(self.path):
+            raise PDFOperationError(tr("Il documento è cambiato. Seleziona nuovamente il testo."))
+        size = target.size if size is None else size
+        alignment = target.alignment if alignment is None else alignment
+        if text == target.text and size == target.size and alignment == target.alignment:
+            return
+        def op(writer, reader):
+            self._valid_page(target.page, len(reader.pages))
+            replace_paragraph(writer, reader, self.path, target, text, size, alignment)
+        self._commit(op)
+
+    def text_boxes(self, page):
+        from .text_edit import editable_boxes
+        if self.encrypted:
+            raise PDFOperationError(tr("I PDF protetti sono in sola lettura."))
+        with self._reader() as reader:
+            self._valid_page(page, len(reader.pages))
+        return editable_boxes(self.path, page)
 
     def text_at(self, page, position):
         if self.encrypted:
@@ -469,8 +540,7 @@ class PDFEditor:
 
         self._commit(op, copy_metadata=False)
 
-    @staticmethod
-    def _atomic_write(writer: PdfWriter, destination: Path) -> Path:
+    def _atomic_write(self, writer: PdfWriter, destination: Path) -> Path:
         destination = destination.expanduser().resolve()
         if destination.suffix.lower() != ".pdf":
             raise PDFOperationError(tr("Il file di destinazione deve terminare con .pdf."))
@@ -482,6 +552,7 @@ class PDFEditor:
                 writer.write(output)
                 output.flush()
                 os.fsync(output.fileno())
+            propagate_zone(tmpname, self.path, destination if destination.exists() else None)
             os.replace(tmpname, destination)
         except Exception as exc:
             Path(tmpname).unlink(missing_ok=True)
@@ -506,6 +577,7 @@ class PDFEditor:
                 shutil.copyfileobj(source, output)
                 output.flush()
                 os.fsync(output.fileno())
+            propagate_zone(tmpname, self.path, destination if destination.exists() else None)
             os.replace(tmpname, destination)
         except Exception as exc:
             Path(tmpname).unlink(missing_ok=True)

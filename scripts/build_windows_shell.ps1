@@ -22,7 +22,7 @@ try {
     $source = Join-Path $projectRoot 'native\windows_shell'
     & rc.exe /nologo /fo shell.res (Join-Path $source 'shell.rc')
     if ($LASTEXITCODE -ne 0) { throw 'Compilazione risorse della shell extension fallita.' }
-    & cl.exe /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /guard:cf /DUNICODE /D_UNICODE /LD (Join-Path $source 'shell.cpp') shell.res /link "/DEF:$(Join-Path $source 'APEPDFShell.def')" /OUT:APEPDFShell.dll ole32.lib uuid.lib user32.lib gdi32.lib shell32.lib comctl32.lib /DYNAMICBASE /NXCOMPAT /GUARD:CF
+    & cl.exe /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /guard:cf /DUNICODE /D_UNICODE /LD (Join-Path $source 'shell.cpp') shell.res /link "/DEF:$(Join-Path $source 'APEPDFShell.def')" /OUT:APEPDFShell.dll ole32.lib uuid.lib user32.lib gdi32.lib shell32.lib comctl32.lib advapi32.lib userenv.lib /DYNAMICBASE /NXCOMPAT /GUARD:CF
     if ($LASTEXITCODE -ne 0) { throw 'Compilazione della shell extension fallita.' }
     & cl.exe /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /guard:cf /DUNICODE /D_UNICODE (Join-Path $source 'smoke.cpp') /link /OUT:APEPDFShellSmoke.exe ole32.lib shlwapi.lib uuid.lib user32.lib gdi32.lib advapi32.lib shell32.lib comctl32.lib /DYNAMICBASE /NXCOMPAT /GUARD:CF
     if ($LASTEXITCODE -ne 0) { throw 'Compilazione della verifica shell fallita.' }

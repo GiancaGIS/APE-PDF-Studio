@@ -34,8 +34,7 @@ def test_product_rename_with_legacy_preferences(app, preferences, text_pdf, monk
         window.open_pdf(text_pdf)
         assert window.current is not None
         assert window.windowTitle().endswith(" — APE PDF Studio")
-        with window.current.editor._reader() as reader:
-            assert "Alpha beta" in reader.pages[0].extract_text()
+        assert "Alpha beta" in window.current.pdf.getAllText(0).text()
     finally:
         for index in reversed(range(window.tabs.count())):
             window.tabs.widget(index).close_document()

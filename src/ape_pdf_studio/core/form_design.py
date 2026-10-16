@@ -1,4 +1,4 @@
-"""Validated creation of script-free AcroForm text fields and checkboxes."""
+"""Validated creation of script-free AcroForm text, checkbox and choice fields."""
 from __future__ import annotations
 
 import math
@@ -12,7 +12,7 @@ from .errors import PDFOperationError
 from .localization import tr
 from .metadata import valid_xml_text
 from .page_coordinates import displayed_size, to_pdf
-from .pdf_forms import MAX_FIELDS, read_fields, write_values
+from .pdf_forms import MAX_FIELDS, MAX_TEXT, COMBO, MULTISELECT, read_fields, write_values
 from .pdf_links import pdf_get
 
 MAX_ANALYSIS_PAGES = 50
@@ -60,7 +60,7 @@ def validate_proposals(proposals, sizes, existing=(), reserved_names=()):
         if not isinstance(proposal, dict):
             raise PDFOperationError(tr("Proposta di campo non valida."))
         page, kind, name, label = (proposal.get(key) for key in ("page", "kind", "name", "label"))
-        if type(page) is not int or not 0 <= page < len(sizes) or kind not in ("text", "checkbox"):
+        if type(page) is not int or not 0 <= page < len(sizes) or kind not in ("text", "checkbox", "combo", "list"):
             raise PDFOperationError(tr("Proposta di campo non valida."))
         if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", name) or name in names:
             raise PDFOperationError(tr("Usa nomi di campo univoci, con lettere, numeri e trattini bassi; inizia con una lettera."))
@@ -81,8 +81,57 @@ def validate_proposals(proposals, sizes, existing=(), reserved_names=()):
             raise PDFOperationError(tr("Proposta di campo non valida."))
         names.add(name)
         occupied.append((page, rect))
-        result.append(dict(page=page, kind=kind, name=name, label=label, rect=list(rect), multiline=multiline))
+        entry = dict(page=page, kind=kind, name=name, label=label, rect=list(rect), multiline=multiline)
+        if kind in ("combo", "list"):
+            entry["options"] = validate_options(proposal.get("options", []))
+        for key in ("readonly", "required"):
+            if key in proposal:
+                if type(proposal[key]) is not bool:
+                    raise PDFOperationError(tr("Proposta di campo non valida."))
+                entry[key] = proposal[key]
+        result.append(entry)
     return result
+
+
+def validate_options(options):
+    if not isinstance(options, list) or not 1 <= len(options) <= MAX_FIELDS:
+        raise PDFOperationError(tr("Inserisci da 1 a 500 opzioni di scelta, con valori univoci."))
+    result = []
+    for pair in options:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2 or any(
+                not isinstance(v, str) or not v or len(v) > 4096 or not valid_xml_text(v) for v in pair):
+            raise PDFOperationError(tr("Inserisci da 1 a 500 opzioni di scelta, con valori univoci."))
+        result.append(list(pair))
+    if len({pair[0] for pair in result}) != len(result):
+        raise PDFOperationError(tr("Inserisci da 1 a 500 opzioni di scelta, con valori univoci."))
+    return result
+
+
+def install_font(writer):
+    form = pdf_get(writer.root_object, "/AcroForm")
+    resources = pdf_get(form, "/DR", DictionaryObject())
+    fonts = pdf_get(resources, "/Font", DictionaryObject())
+    font_name = "/APEHelv"
+    while font_name in fonts:
+        font_name += "_"
+    fonts[NameObject(font_name)] = writer._add_object(DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"), NameObject("/Subtype"): NameObject("/Type1"),
+        NameObject("/BaseFont"): NameObject("/Helvetica"), NameObject("/Encoding"): NameObject("/WinAnsiEncoding")}))
+    resources[NameObject("/Font")] = fonts
+    form[NameObject("/DR")] = resources
+    return font_name
+
+
+def checkbox_appearance(writer, widget):
+    appearances = DictionaryObject()
+    for state in ("/Off", "/Yes"):
+        stream = DecodedStreamObject()
+        stream.set_data(b"" if state == "/Off" else b"0 G 2 w 3 8 m 7 4 l 14 13 l S")
+        stream.update({NameObject("/Type"): NameObject("/XObject"), NameObject("/Subtype"): NameObject("/Form"),
+            NameObject("/BBox"): ArrayObject(map(NumberObject, (0, 0, 18, 18))), NameObject("/Resources"): DictionaryObject()})
+        appearances[NameObject(state)] = writer._add_object(stream)
+    widget[NameObject("/AP")] = DictionaryObject({NameObject("/N"): appearances})
+    widget[NameObject("/AS")] = NameObject("/Off")
 
 
 def create_fields(writer, proposals):
@@ -95,16 +144,7 @@ def create_fields(writer, proposals):
     if "/Fields" not in form:
         form[NameObject("/Fields")] = ArrayObject()
     original_need_appearances = pdf_get(form,"/NeedAppearances")
-    resources = pdf_get(form, "/DR", DictionaryObject())
-    fonts = pdf_get(resources, "/Font", DictionaryObject())
-    font_name = "/APEHelv"
-    while font_name in fonts:
-        font_name += "_"
-    fonts[NameObject(font_name)] = writer._add_object(DictionaryObject({
-        NameObject("/Type"): NameObject("/Font"), NameObject("/Subtype"): NameObject("/Type1"),
-        NameObject("/BaseFont"): NameObject("/Helvetica"), NameObject("/Encoding"): NameObject("/WinAnsiEncoding")}))
-    resources[NameObject("/Font")] = fonts
-    form[NameObject("/DR")] = resources
+    font_name = install_font(writer)
     initial = {}
     for proposal in proposals:
         page = writer.pages[proposal["page"]]
@@ -112,29 +152,28 @@ def create_fields(writer, proposals):
         points = [to_pdf(page, x, y) for x in (left, right) for y in (top, bottom)]
         rect = (min(x for x, _ in points), min(y for _, y in points), max(x for x, _ in points), max(y for _, y in points))
         checkbox = proposal["kind"] == "checkbox"
+        choice = proposal["kind"] in ("combo", "list")
+        flags = (4096 if proposal["multiline"] and proposal["kind"] == "text" else 0)
+        flags |= COMBO if proposal["kind"] == "combo" else 0
+        flags |= MULTISELECT if proposal["kind"] == "list" else 0
+        flags |= int(proposal.get("readonly", False)) | (2 if proposal.get("required", False) else 0)
         field = DictionaryObject({NameObject("/Type"): NameObject("/Annot"), NameObject("/Subtype"): NameObject("/Widget"),
-            NameObject("/FT"): NameObject("/Btn" if checkbox else "/Tx"),
+            NameObject("/FT"): NameObject("/Btn" if checkbox else "/Ch" if choice else "/Tx"),
             NameObject("/T"): TextStringObject(proposal["name"]), NameObject("/TU"): TextStringObject(proposal["label"]),
-            NameObject("/F"): NumberObject(4), NameObject("/Ff"): NumberObject(4096 if proposal["multiline"] and not checkbox else 0),
+            NameObject("/F"): NumberObject(4), NameObject("/Ff"): NumberObject(flags),
             NameObject("/Rect"): ArrayObject(map(FloatObject, rect)), NameObject("/P"): page.indirect_reference,
             NameObject("/DA"): TextStringObject(f"{font_name} {min(11,(bottom-top)*.65)/float(page.get('/UserUnit',1)):.6g} Tf 0 g"),
             NameObject("/MK"): DictionaryObject({NameObject("/R"): NumberObject(page.rotation % 360)}),
             NameObject("/BS"): DictionaryObject({NameObject("/W"): NumberObject(0)})})
         if checkbox:
-            appearances = DictionaryObject()
-            for state in ("/Off", "/Yes"):
-                stream = DecodedStreamObject()
-                # Transparent appearance: retain the original printed box.
-                stream.set_data(b"" if state == "/Off" else b"0 G 2 w 3 8 m 7 4 l 14 13 l S")
-                stream.update({NameObject("/Type"): NameObject("/XObject"), NameObject("/Subtype"): NameObject("/Form"),
-                    NameObject("/BBox"): ArrayObject(map(NumberObject, (0, 0, 18, 18))), NameObject("/Resources"): DictionaryObject()})
-                appearances[NameObject(state)] = writer._add_object(stream)
-            field[NameObject("/AP")] = DictionaryObject({NameObject("/N"): appearances})
+            checkbox_appearance(writer, field)
             field[NameObject("/V")] = NameObject("/Off")
-            field[NameObject("/AS")] = NameObject("/Off")
         else:
             field[NameObject("/V")] = TextStringObject("")
-            field[NameObject("/MaxLen")] = NumberObject(32768)
+            if choice:
+                field[NameObject("/Opt")] = ArrayObject(ArrayObject(map(TextStringObject, pair)) for pair in proposal["options"])
+            else:
+                field[NameObject("/MaxLen")] = NumberObject(MAX_TEXT)
             initial[proposal["name"]] = ""
         reference = writer._add_object(field)
         pdf_get(form, "/Fields").append(reference)

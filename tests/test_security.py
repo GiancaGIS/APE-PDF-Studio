@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject, DecodedStreamObject
+from pypdf.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject, DecodedStreamObject, NullObject, NumberObject
 
 from ape_pdf_studio.core import security
 from ape_pdf_studio.core.editor import PDFEditor
@@ -120,6 +120,47 @@ def test_internal_destination_and_cyclic_next_are_handled(tmp_path):
     editor = PDFEditor(write_pdf(tmp_path, change))
     assert not editor.security_report.findings
     editor.close()
+
+
+@pytest.mark.parametrize("active_content", [False, True])
+def test_tagged_pdf_with_large_sparse_parent_tree_is_fully_checked(tmp_path, active_content):
+    # Tagged exports can contain hundreds of thousands of null placeholders
+    # in their structure parent tree while having relatively few PDF objects.
+    writer = PdfWriter()
+    if active_content:
+        writer.root_object[NameObject("/OpenAction")] = writer._add_object(action("/JavaScript"))
+    structure = DictionaryObject({NameObject("/Type"): NameObject("/StructTreeRoot")})
+    structure_ref = writer._add_object(structure)
+    kids, nums = ArrayObject(), ArrayObject()
+    for index in range(64):
+        page = writer.add_blank_page(400, 600)
+        page[NameObject("/StructParents")] = NumberObject(index)
+        element = writer._add_object(DictionaryObject({
+            NameObject("/Type"): NameObject("/StructElem"),
+            NameObject("/S"): NameObject("/P"), NameObject("/P"): structure_ref,
+            NameObject("/Pg"): page.indirect_reference, NameObject("/K"): NumberObject(8192),
+        }))
+        kids.append(element)
+        parents = writer._add_object(ArrayObject([NullObject() for _ in range(8192)] + [element]))
+        nums.extend([NumberObject(index), parents])
+    structure[NameObject("/K")] = kids
+    structure[NameObject("/ParentTree")] = writer._add_object(DictionaryObject({NameObject("/Nums"): nums}))
+    writer.root_object[NameObject("/StructTreeRoot")] = structure_ref
+    source = tmp_path / "tagged.pdf"
+    writer.write(source)
+    if active_content:
+        with pytest.raises(PDFSecurityError, match="JavaScript"):
+            security.check_pdf(source)
+    else:
+        assert security.check_pdf(source).findings == ()
+
+
+def test_object_visit_limit_still_rejects_excessive_structure(tmp_path, monkeypatch):
+    source = write_pdf(tmp_path)
+    monkeypatch.setattr(security, "MAX_NODES", 4)
+    with PdfReader(source) as reader:
+        with pytest.raises(PDFSecurityError, match="complessa"):
+            security.inspect_reader(reader)
 
 
 def test_encrypted_active_content_is_checked_after_password(tmp_path):

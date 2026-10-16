@@ -23,6 +23,9 @@
 #if !FileExists(DistDir + "\APEPDFShell.dll")
   #error "Build the native shell extension and include APEPDFShell.dll beside the executables."
 #endif
+#if !FileExists(DistDir + "\APEPDFSandbox.exe")
+  #error "Build and include the native AppContainer launcher before packaging."
+#endif
 #if !FileExists(LicensePath)
   #error "LicensePath must point to an existing license file."
 #endif
@@ -34,6 +37,10 @@
 #endif
 
 [Setup]
+#ifdef ReleaseSign
+SignTool=APECodeSign
+SignedUninstaller=yes
+#endif
 AppId={{F890B690-6157-47AE-94CC-1194928D89EC}
 AppName={#AppName}
 AppVersion={#AppVersion}
@@ -143,6 +150,10 @@ Root: HKA; Subkey: "Software\Classes\CLSID\{{{#PreviewGuid}}"; ValueType: string
 Root: HKA; Subkey: "Software\Classes\CLSID\{{{#PreviewGuid}}"; ValueType: string; ValueName: "AppID"; ValueData: "{{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}"; Tasks: pdfpreview; Check: IsX64
 Root: HKA; Subkey: "Software\Classes\CLSID\{{{#PreviewGuid}}\InprocServer32"; ValueType: string; ValueName: ""; ValueData: "{app}\APEPDFShell.dll"; Tasks: pdfpreview; Check: IsX64
 Root: HKA; Subkey: "Software\Classes\CLSID\{{{#PreviewGuid}}\InprocServer32"; ValueType: string; ValueName: "ThreadingModel"; ValueData: "Apartment"; Tasks: pdfpreview; Check: IsX64
+; This adapter is the broker, not the PDF parser. AppContainer creation needs
+; medium IL; PDF bytes are interpreted only by its sandboxed child. Never fall
+; back to a plain worker if the host cannot create that sandbox.
+Root: HKA; Subkey: "Software\Classes\CLSID\{{{#PreviewGuid}}"; ValueType: dword; ValueName: "DisableLowILProcessIsolation"; ValueData: "1"; Tasks: pdfpreview; Check: IsX64
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\PreviewHandlers"; ValueType: string; ValueName: "{{{#PreviewGuid}}"; ValueData: "APE PDF preview handler"; Flags: uninsdeletevalue; Tasks: pdfpreview; Check: IsX64
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"; ValueType: string; ValueName: "{{{#ThumbnailGuid}}"; ValueData: "APE PDF thumbnail provider"; Flags: uninsdeletevalue; Tasks: pdfthumbnails; Check: IsX64
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved"; ValueType: string; ValueName: "{{{#PreviewGuid}}"; ValueData: "APE PDF preview handler"; Flags: uninsdeletevalue; Tasks: pdfpreview; Check: IsX64

@@ -36,6 +36,17 @@ def text_spans(page):
     return result
 
 
+def supported_paint(span):
+    import pymupdf
+    # Use the native enum: recent MuPDF versions added a BOLD bit before FILLED.
+    # Hardcoded old masks misclassify ordinary bold glyphs as stroked text.
+    filled = pymupdf.mupdf.FZ_STEXT_FILLED
+    stroked = pymupdf.mupdf.FZ_STEXT_STROKED
+    clipped = pymupdf.mupdf.FZ_STEXT_CLIPPED
+    flags = span.get('char_flags', filled)
+    return span.get('alpha', 255) == 255 and flags & filled and not flags & (stroked | clipped)
+
+
 def find_target(source, number, position):
     import pymupdf
     with pymupdf.open(stream=source.read_bytes(), filetype="pdf") as document:
@@ -48,7 +59,7 @@ def find_target(source, number, position):
         address, line, span = min(hits, key=lambda item: pymupdf.Rect(item[2]["bbox"]).get_area())
         if line["wmode"] != 0 or abs(line["dir"][0] - 1) > .001 or abs(line["dir"][1]) > .001:
             raise PDFOperationError(tr("La modifica di testo inclinato o verticale non è ancora supportata."))
-        if span.get("alpha", 255) != 255 or not span.get("char_flags", 16) & 16 or span.get("char_flags", 16) & 8:
+        if not supported_paint(span):
             raise PDFOperationError(tr("La modifica di testo trasparente o con contorni speciali non è ancora supportata."))
         if not .5 <= span["size"] <= 300:
             raise PDFOperationError(tr("La dimensione del testo è fuori dall'intervallo modificabile (0,5–300 pt)."))
@@ -57,6 +68,22 @@ def find_target(source, number, position):
         return TextTarget(str(source), number, address, span["text"], tuple(span["bbox"]),
                           tuple(pymupdf.Rect(span["bbox"]) * page.rotation_matrix), tuple(span["origin"]),
                           span["size"], span["color"], span["font"], span["flags"])
+
+
+def editable_boxes(source, number):
+    """Return bounded geometry only; the UI never parses PDF text objects."""
+    import pymupdf
+    with pymupdf.open(stream=source.read_bytes(), filetype="pdf") as document:
+        page = document[number]
+        boxes = []
+        for _, line, span in text_spans(page):
+            if (not span["text"].strip() or len(span["text"]) > 4000
+                    or line["wmode"] != 0 or abs(line["dir"][0] - 1) > .001
+                    or abs(line["dir"][1]) > .001 or not supported_paint(span)
+                    or not .5 <= span["size"] <= 300):
+                continue
+            boxes.append(tuple(pymupdf.Rect(span["bbox"]) * page.rotation_matrix))
+        return boxes
 
 
 def replacement_font(document, page, target, text):

@@ -64,20 +64,25 @@ def clip_commands(value):
         raise VectorUnsupported(tr("Ritaglio SVG non supportato"))
     commands = []
     index = 0
+    command = None
     counts = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "Z": 0}
     while index < len(tokens):
-        command = tokens[index]
+        if tokens[index] in counts:
+            command=tokens[index]
+            index+=1
         count = counts.get(command)
         if count is None:
             raise VectorUnsupported(tr("Ritaglio SVG non supportato"))
         try:
-            coordinates = [float(x) for x in tokens[index + 1:index + 1 + count]]
+            coordinates = [float(x) for x in tokens[index:index + count]]
         except ValueError as exc:
             raise VectorUnsupported(tr("Ritaglio SVG non valido")) from exc
         if len(coordinates) != count or not all(math.isfinite(x) and abs(x) <= 1e9 for x in coordinates):
             raise VectorUnsupported("Ritaglio SVG fuori limite")
         commands.append([command, coordinates])
-        index += count + 1
+        index += count
+        if command=='M':command='L'
+        elif command=='Z':command=None
     if not commands or commands[0][0] != "M":
         raise VectorUnsupported(tr("Ritaglio SVG non valido"))
     return commands

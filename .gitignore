@@ -12,3 +12,6 @@ build/
 .DS_Store
 .idea/
 .vscode/
+docs/security-review.md
+docs/security-hardening.md
+examples/README.md
