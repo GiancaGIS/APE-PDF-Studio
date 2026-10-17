@@ -726,5 +726,7 @@
   "Il paragrafo contiene troppi stili diversi per il riflusso.": "The paragraph contains too many different styles for reflow.",
   "Il testo richiede troppe righe per il riflusso.": "The text requires too many lines for reflow.",
   "Il riquadro è troppo stretto per il carattere selezionato.": "The text box is too narrow for the selected character.",
-  "Il paragrafo supera lo spazio libero: accorcialo o riduci la dimensione. Nessun contenuto è stato sovrascritto.": "The paragraph exceeds the free space: shorten it or reduce the font size. No content has been overwritten."
+  "Il paragrafo supera lo spazio libero: accorcialo o riduci la dimensione. Nessun contenuto è stato sovrascritto.": "The paragraph exceeds the free space: shorten it or reduce the font size. No content has been overwritten.",
+  "Aggiornamento disponibile": "Update available",
+  "Apri la release su GitHub per scaricare e installare l'aggiornamento.": "Open the GitHub release to download and install the update."
 }

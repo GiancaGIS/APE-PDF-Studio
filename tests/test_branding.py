@@ -114,7 +114,8 @@ def test_application_author_sets_qt_data_folder(app, monkeypatch):
 
     previous_name, previous_organization = app.applicationName(), app.organizationName()
     monkeypatch.setattr(entrypoint, "QApplication", lambda args: app)
-    monkeypatch.setattr(entrypoint, "MainWindow", lambda: type("Window", (), {"show": lambda self: None})())
+    monkeypatch.setattr(entrypoint, "MainWindow", lambda: type("Window", (), {
+        "show": lambda self: None, "schedule_update_check": lambda self: None})())
     monkeypatch.setattr(entrypoint, "apply_theme", lambda app: None)
     monkeypatch.setattr(app, "exec", lambda: 0)
     monkeypatch.setattr(entrypoint.sys, "argv", ["ape-pdf-studio"])
@@ -153,6 +154,9 @@ def test_association_launch_opens_pdf_argument(app, text_pdf, tmp_path, monkeypa
         def show(self):
             pass
 
+        def schedule_update_check(self):
+            opened.append("startup-update-check")
+
         def open_pdf(self, path):
             opened.append(path)
 
@@ -164,7 +168,7 @@ def test_association_launch_opens_pdf_argument(app, text_pdf, tmp_path, monkeypa
     monkeypatch.setattr(entrypoint.sys, "argv", ["APEPDFStudio.exe", str(document)])
     try:
         assert entrypoint.main() == 0
-        assert opened == [document]
+        assert opened == ["startup-update-check", document]
     finally:
         app.setApplicationName(previous_name)
         app.setOrganizationName(previous_organization)

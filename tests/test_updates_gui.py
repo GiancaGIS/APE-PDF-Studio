@@ -60,7 +60,7 @@ class Network(QObject):
 @pytest.fixture
 def dialog(app, monkeypatch):
     configure_language(app, "it")
-    monkeypatch.setattr("ape_pdf_studio.ui.updates_dialog.QNetworkAccessManager", Network)
+    monkeypatch.setattr("ape_pdf_studio.ui.update_checker.QNetworkAccessManager", Network)
     widget = UpdatesDialog()
     yield widget
     widget.reject()
@@ -73,11 +73,11 @@ def release(tag="v1.10.0"):
 
 
 def test_manual_check_headers_and_no_duplicate_request(dialog):
-    assert not dialog.network.requests
+    assert not dialog.checker.network.requests
     dialog.check()
     dialog.check()
-    assert len(dialog.network.requests) == 1
-    request = dialog.network.requests[0]
+    assert len(dialog.checker.network.requests) == 1
+    request = dialog.checker.network.requests[0]
     assert request.url() == QUrl(LATEST_RELEASE_API)
     assert bytes(request.rawHeader("Accept")) == b"application/vnd.github+json"
     assert bytes(request.rawHeader("X-GitHub-Api-Version")) == API_VERSION.encode()
@@ -91,13 +91,13 @@ def test_success_accumulates_chunks_and_only_user_opens_browser(dialog, monkeypa
     opened = []
     monkeypatch.setattr("ape_pdf_studio.ui.updates_dialog.QDesktopServices.openUrl", lambda url: opened.append(url.toString()) or True)
     dialog.check()
-    reply = dialog.network.replies[0]
+    reply = dialog.checker.network.replies[0]
     data = release()
     reply.deliver(data[:20], finish=False)
     reply.deliver(data[20:])
     assert "1.10.0" in dialog.status.text()
     assert dialog.release_button.isEnabled() and dialog.check_button.isEnabled()
-    assert not dialog.timer.isActive() and dialog._reply is None
+    assert not dialog.checker.timer.isActive() and dialog.checker._reply is None
     assert not opened
     dialog.release_button.click()
     assert opened == [RELEASES_URL + "/tag/v1.10.0"]
@@ -115,7 +115,7 @@ def test_success_accumulates_chunks_and_only_user_opens_browser(dialog, monkeypa
 ])
 def test_failures_and_current_version_have_no_download_button(dialog, status, data, error, expected):
     dialog.check()
-    dialog.network.replies[-1].deliver(data, status, error)
+    dialog.checker.network.replies[-1].deliver(data, status, error)
     assert expected in dialog.status.text()
     assert dialog.check_button.isEnabled() and not dialog.release_button.isEnabled()
 
@@ -123,35 +123,35 @@ def test_failures_and_current_version_have_no_download_button(dialog, status, da
 @pytest.mark.parametrize("failure", ["timeout", "oversized", "close"])
 def test_deadline_size_cap_and_close_abort_request(dialog, failure):
     dialog.check()
-    reply = dialog.network.replies[-1]
+    reply = dialog.checker.network.replies[-1]
     if failure == "timeout":
-        dialog.timer.timeout.emit()
+        dialog.checker.timer.timeout.emit()
         assert "Tempo scaduto" in dialog.status.text()
     elif failure == "oversized":
         reply.deliver(b"x" * (MAX_RESPONSE_BYTES + 1))
         assert "troppo grande" in dialog.status.text()
-        assert not dialog._body
+        assert not dialog.checker._body
     else:
         dialog.reject()
-    assert reply.aborted and dialog._reply is None
-    assert not dialog.timer.isActive()
+    assert reply.aborted and dialog.checker._reply is None
+    assert not dialog.checker.timer.isActive()
     assert not dialog.release_button.isEnabled()
 
 
 def test_retry_clears_previous_release_and_error(dialog):
     dialog.check()
-    dialog.network.replies[-1].deliver(release())
+    dialog.checker.network.replies[-1].deliver(release())
     dialog.check()
-    assert not dialog.release_button.isEnabled() and dialog._release is None
-    dialog.network.replies[-1].deliver(b"invalid")
-    assert dialog._release is None
+    assert not dialog.release_button.isEnabled() and dialog.checker.release is None
+    dialog.checker.network.replies[-1].deliver(b"invalid")
+    assert dialog.checker.release is None
     dialog.check()
-    dialog.network.replies[-1].deliver(release())
+    dialog.checker.network.replies[-1].deliver(release())
     assert dialog.release_button.isEnabled()
 
 
 def test_main_window_exposes_check_without_network_on_startup(app, monkeypatch):
-    monkeypatch.setattr("ape_pdf_studio.ui.updates_dialog.QNetworkAccessManager.get", lambda *args: pytest.fail("Unexpected startup network request"))
+    monkeypatch.setattr("ape_pdf_studio.ui.update_checker.QNetworkAccessManager.get", lambda *args: pytest.fail("Unexpected startup network request"))
     window = MainWindow()
     try:
         assert window.a_updates.text()
