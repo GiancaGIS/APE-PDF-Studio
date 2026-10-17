@@ -38,7 +38,7 @@ jobs:
       - name: Windows isolation probes
         run: .venv-build/Scripts/python scripts/test_windows_sandbox.py
       - name: Regression and hostile protocol cases
-        run: .venv-build/Scripts/python -m pytest -q -p no:cacheprovider --basetemp build/pytest-security
+        run: .venv-build/Scripts/python -m pytest -q -p no:cacheprovider --basetemp build/pytest-security --junitxml=build/pytest-results.xml --durations=15
       - name: Protocol mutation smoke
         run: .venv-build/Scripts/python scripts/fuzz_security_protocol.py --cases 10000
       - name: Native parser mutation smoke in AppContainer
@@ -59,6 +59,7 @@ jobs:
         with:
           name: security-reports
           path: |
+            build/pytest-results.xml
             build/pip-audit.json
             build/security-inventory.json
             build/windows/native-fuzz.json

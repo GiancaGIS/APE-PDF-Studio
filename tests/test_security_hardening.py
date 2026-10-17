@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import struct
+from types import SimpleNamespace
 
 import pytest
 from pypdf import PdfReader,PdfWriter
@@ -39,6 +40,19 @@ def test_untrusted_ipc_rejects_unknown_types_and_invalid_domains(payload):
 def test_frame_length_is_checked_before_reading_payload():
     with pytest.raises(ValueError):rpc_codec.read(io.BytesIO(struct.pack('<I',rpc_codec.MAX_PACKET+1)))
     with pytest.raises(EOFError):rpc_codec.read(io.BytesIO(b'\x08\0\0\0{}'))
+
+
+def test_worker_disconnect_logs_exit_status_without_sensitive_request(caplog,monkeypatch):
+    editor=BrokerEditor.__new__(BrokerEditor)
+    editor._process=SimpleNamespace(stdin=io.BytesIO(),stdout=io.BytesIO(),pid=1234,poll=lambda:23)
+    accepted=editor._state={'accepted':'previous revision'}
+    stopped=[]
+    monkeypatch.setattr(editor,'_stop',lambda:stopped.append(True))
+    with pytest.raises(PDFOperationError,match='Processo PDF interrotto'):
+        editor._exchange({'method':'open','password':'private-password','source':'private-path.pdf'})
+    assert editor._state is accepted and stopped
+    assert 'method=open' in caplog.text and 'exit_code=23' in caplog.text
+    assert 'private-password' not in caplog.text and 'private-path.pdf' not in caplog.text
 
 
 def test_artifact_handle_rejects_escape_and_hardlink(tmp_path):

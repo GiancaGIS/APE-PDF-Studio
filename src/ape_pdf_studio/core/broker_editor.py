@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
 import queue
 import subprocess
 import threading
@@ -67,6 +68,7 @@ class BrokerEditor:
 
     def _exchange(self,request,timeout=30):
         process=self._process
+        started=time.monotonic()
         received=queue.Queue(maxsize=1)
         def receive():
             try:
@@ -115,6 +117,15 @@ class BrokerEditor:
         except (PDFOperationError,):
             raise
         except Exception as exc:
+            # Preserve the supervisor's exit status before _stop() can kill it.
+            # Never log request arguments: they may contain passwords/PDF text.
+            exit_code=process.poll()
+            if isinstance(exc,EOFError) and exit_code is None:
+                try:exit_code=process.wait(timeout=.2)
+                except subprocess.TimeoutExpired:pass
+            logging.getLogger(__name__).error(
+                'PDF worker transport failed: method=%s pid=%s exit_code=%s elapsed=%.3fs budget=%ss error=%s',
+                request.get('method'),process.pid,exit_code,time.monotonic()-started,timeout,type(exc).__name__)
             self._stop()
             raise PDFOperationError('Processo PDF interrotto o risposta non valida. La revisione precedente è conservata.') from exc
         finally:
