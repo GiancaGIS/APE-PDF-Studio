@@ -53,6 +53,8 @@ jobs:
           python -m pip_audit -r build/audit-requirements.txt --no-deps --disable-pip -f json -o build/pip-audit.json
       - name: Native inventory and official advisories
         if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: .venv-build/Scripts/python scripts/security_inventory.py --upstream --output build/security-inventory.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
