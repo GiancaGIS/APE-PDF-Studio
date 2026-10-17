@@ -150,7 +150,7 @@ def test_retry_clears_previous_release_and_error(dialog):
     assert dialog.release_button.isEnabled()
 
 
-def test_main_window_exposes_check_without_network_on_startup(app, monkeypatch):
+def test_main_window_exposes_check_without_network_during_construction(app, monkeypatch):
     monkeypatch.setattr("ape_pdf_studio.ui.update_checker.QNetworkAccessManager.get", lambda *args: pytest.fail("Unexpected startup network request"))
     window = MainWindow()
     try:
