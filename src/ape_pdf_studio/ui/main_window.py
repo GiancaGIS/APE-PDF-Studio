@@ -37,7 +37,7 @@ from .icons import application_icon, icon
 from .page_number import PageNumberEdit
 from .settings_dialog import SettingsDialog
 from .theme import DEFAULT_THEME, apply_theme, normalize_theme, theme_color
-from .toast import CompletionToast
+from .toast import CompletionToast, UpdateToast
 from .content_dialogs import NoteDialog, TextEditDialog
 from .split_dialog import SplitDialog
 from .print_dialog import PrintDialog
@@ -45,6 +45,7 @@ from .ocr import OcrDialog, OcrJob
 from .language import configure_language
 from .licenses_dialog import LicensesDialog
 from .updates_dialog import UpdatesDialog
+from .update_checker import UpdateChecker
 from ..core.pdf_links import allowed_url
 from ..core.localization import DEFAULT_LANGUAGE, normalize_language, tr
 
@@ -90,6 +91,15 @@ class MainWindow(QMainWindow):
         self._update_state()
         self._restore_window()
         self.toast = CompletionToast(self)
+        self.update_toast = UpdateToast(self, self.toast)
+        self.update_checker = UpdateChecker(self)
+        self.update_checker.completed.connect(self._startup_update_finished)
+        self.update_checker.failed.connect(self._startup_update_failed)
+        self._startup_requested = False
+        self._startup_pending = False
+        self._startup_timer = QTimer(self)
+        self._startup_timer.setSingleShot(True)
+        self._startup_timer.timeout.connect(self._check_startup_update)
 
     def _make_welcome(self) -> QWidget:
         page = QWidget()
@@ -759,6 +769,10 @@ class MainWindow(QMainWindow):
                 return
         self.settings.setValue("window/geometry", self.saveGeometry())
         self.settings.sync()
+        self._startup_timer.stop()
+        self._startup_pending = False
+        self.update_checker.cancel()
+        self.update_toast.dismiss()
         for index in reversed(range(self.tabs.count())):
             tab = self.tabs.widget(index)
             tab.close_document()
@@ -1183,8 +1197,32 @@ class MainWindow(QMainWindow):
             detail += tr(" Controlla il testo. Usa Salva per conservarlo oppure Ctrl+Z per annullare.")
         QMessageBox.information(self, tr("OCR completato"), detail)
 
+    def schedule_update_check(self) -> None:
+        """Called once by the entrypoint after showing the application window."""
+        if not self._startup_requested:
+            self._startup_requested = True
+            self._startup_timer.start(800)
+
+    def _check_startup_update(self):
+        self._startup_pending = True
+        if self.update_checker.checked:
+            if self.update_checker.error:
+                self._startup_update_failed(self.update_checker.error)
+            else:
+                self._startup_update_finished(self.update_checker.release)
+        else:
+            self.update_checker.check()
+
+    def _startup_update_finished(self, release):
+        if self._startup_pending:
+            self._startup_pending = False
+            self.update_toast.show_update(release)
+
+    def _startup_update_failed(self, _message):
+        self._startup_pending = False
+
     def show_updates(self) -> None:
-        dialog = UpdatesDialog(self)
+        dialog = UpdatesDialog(self, checker=self.update_checker)
         dialog.check()
         dialog.exec()
         dialog.deleteLater()

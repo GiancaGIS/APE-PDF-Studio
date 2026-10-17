@@ -35,6 +35,7 @@ def main() -> int:
     apply_theme(app)
     window = MainWindow()
     window.show()
+    window.schedule_update_check()
     for argument in sys.argv[1:]:
         candidate = Path(argument)
         if candidate.is_file() and candidate.suffix.lower() == ".pdf":
