@@ -1,5 +1,6 @@
 """Exercise real Qt interactions, including the broken search binding."""
 import os
+import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -9,7 +10,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 pytest.importorskip("PySide6")
-from PySide6.QtCore import QPoint, QPointF, QSettings, Qt, QTimer
+from PySide6.QtCore import QEventLoop, QPoint, QPointF, QSettings, Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QImage, QPalette, QWheelEvent
 from PySide6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from PySide6.QtTest import QTest
@@ -78,11 +79,33 @@ def window(app, text_pdf, monkeypatch):
 
 
 def wait_for(predicate, timeout=2500):
-    for _ in range(timeout // 25):
+    deadline = time.monotonic() + timeout / 1000
+    while time.monotonic() < deadline:
         if predicate():
             return
-        QTest.qWait(25)
+        # A real event loop releases the GIL while waiting, so Python render/RPC
+        # threads can make progress alongside Qt's queued completion signals.
+        loop = QEventLoop()
+        QTimer.singleShot(25, loop.quit)
+        loop.exec()
     assert predicate()
+
+
+def wait_for_tiles(viewer, timeout=10000):
+    def ready():
+        return bool(viewer._wanted) and all(tile in viewer._images for tile in viewer._wanted)
+
+    try:
+        # Stop immediately on a rendering failure; more time cannot repair it.
+        wait_for(lambda: bool(viewer._failed) or ready(), timeout=timeout)
+        assert not viewer._failed
+        assert ready()
+    except AssertionError as exc:
+        raise AssertionError(
+            f"Rendering incomplete: wanted={len(viewer._wanted)}, "
+            f"cached={len(viewer._images)}, pending={len(viewer._requests)}, "
+            f"failed={viewer._failed!r}"
+        ) from exc
 
 
 def test_search_typing_results_navigation_and_clear(window):
@@ -1002,7 +1025,7 @@ def test_tiles_match_full_render_on_rotated_cropped_and_annotated_page(window, t
     rect = viewer.page_rects()[0]
     viewer.verticalScrollBar().setValue(int(rect.top() + 1024 / viewer.devicePixelRatioF() - viewer.viewport().height() / 2))
     viewer.viewport().grab()
-    wait_for(lambda: viewer._wanted and all(tile in viewer._images for tile in viewer._wanted))
+    wait_for_tiles(viewer)
     options = QPdfDocumentRenderOptions()
     options.setRenderFlags(QPdfDocumentRenderOptions.RenderFlag.Annotations)
     first = next(iter(viewer._wanted))
@@ -1027,7 +1050,7 @@ def test_fast_zoom_keeps_requests_bounded_and_renders_the_final_view(window):
         window.current.set_zoom(zoom)
         viewer.viewport().grab()
         assert len(viewer._requests) <= 2
-    wait_for(lambda: viewer._wanted and all(tile in viewer._images for tile in viewer._wanted))
+    wait_for_tiles(viewer)
     rect = viewer.page_rects()[0]
     expected_width = round(rect.width() * viewer.devicePixelRatioF())
     assert all(tile.full_width == expected_width for tile in viewer._wanted)
@@ -1048,7 +1071,7 @@ def test_revision_change_clears_tiles_and_ignores_old_renderer_results(window):
     previous_renderer.pageRendered.emit(0, QImage(4, 4, QImage.Format.Format_ARGB32).size(),
                                         QImage(4, 4, QImage.Format.Format_ARGB32), QPdfDocumentRenderOptions(), 1)
     assert dict(viewer._images) == before
-    wait_for(lambda: viewer._wanted and all(tile in viewer._images for tile in viewer._wanted))
+    wait_for_tiles(viewer)
 
 
 def test_vector_zoom_reuses_glyph_paths_and_keeps_selection_and_search(window):
@@ -1144,7 +1167,7 @@ def test_embedded_image_uses_complete_compatibility_page(window, tmp_path):
     assert 0 not in viewer.vectors.cache
     assert window.render_state.text() == "Compatibilità"
     viewer.viewport().grab()
-    wait_for(lambda: viewer._wanted and all(tile in viewer._images for tile in viewer._wanted))
+    wait_for_tiles(viewer)
 
 
 def test_highlight_switches_to_compatibility_and_retains_annotation(window):
@@ -1156,7 +1179,7 @@ def test_highlight_switches_to_compatibility_and_retains_annotation(window):
     wait_for(lambda: 0 in viewer.vectors.failed, timeout=10000)
     assert window.render_state.text() == "Compatibilità"
     viewer.viewport().grab()
-    wait_for(lambda: viewer._wanted and all(tile in viewer._images for tile in viewer._wanted))
+    wait_for_tiles(viewer)
     assert PdfReader(tab.editor.path).pages[0]["/Annots"][0].get_object()["/Subtype"] == "/Highlight"
     yellow = 0
     for tile, image in viewer._images.items():
