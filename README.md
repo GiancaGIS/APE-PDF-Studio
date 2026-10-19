@@ -40,6 +40,12 @@ APE PDF Studio uses **PySide6** for the interface, **MuPDF / Qt SVG** for vector
 
 ![main window](images/main_window.png)
 
+![main tools](images/main_tools.png)
+
+![menu 1](images/menu_1.png)
+
+![menu 2](images/menu_2.png)
+
 ## Quick start
 
 ### Windows
