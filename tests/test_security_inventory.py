@@ -20,7 +20,7 @@ spec.loader.exec_module(inventory)
 @pytest.fixture(autouse=True)
 def isolated_environment(monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.setattr(inventory, "inventory", lambda: {"pypdf": "6.20.1", "MuPDF": "1.28.5"})
+    monkeypatch.setattr(inventory, "inventory", lambda: {"pypdf": "6.21.1", "MuPDF": "1.28.5"})
 
 
 def command(monkeypatch, tmp_path, *options):
@@ -86,7 +86,7 @@ def test_rate_limit_preserves_inventory_and_stops_requests(monkeypatch, tmp_path
     with pytest.raises(SystemExit, match="incomplete"):
         inventory.main()
     report = json.loads(output.read_text())
-    assert report["pypdf"] == "6.20.1" and report["MuPDF"] == "1.28.5"
+    assert report["pypdf"] == "6.21.1" and report["MuPDF"] == "1.28.5"
     assert report["advisories"] == {} and len(requests) == 1
     check = report["upstream_check"]
     assert check["status"] == "incomplete"
@@ -137,4 +137,14 @@ def test_offline_release_inventory_does_not_query_github(monkeypatch, tmp_path):
     output = command(monkeypatch, tmp_path, "--release")
     monkeypatch.setattr(inventory, "urlopen", lambda *a, **kw: pytest.fail("Unexpected network request"))
     inventory.main()
-    assert json.loads(output.read_text()) == {"pypdf": "6.20.1", "MuPDF": "1.28.5"}
+    assert json.loads(output.read_text()) == {"pypdf": "6.21.1", "MuPDF": "1.28.5"}
+
+
+@pytest.mark.parametrize('pypdf,mupdf', [('6.20.1', '1.28.5'), ('6.21.0', '1.28.5'),
+                                       ('6.21.1rc1', '1.28.5'), ('6.21.1', '1.28.4')])
+def test_release_gate_rejects_versions_before_security_fixes(monkeypatch, tmp_path, pypdf, mupdf):
+    output = command(monkeypatch, tmp_path, '--release')
+    monkeypatch.setattr(inventory, 'inventory', lambda: {'pypdf': pypdf, 'MuPDF': mupdf})
+    with pytest.raises(SystemExit, match='Release blocked'):
+        inventory.main()
+    assert json.loads(output.read_text()) == {'pypdf': pypdf, 'MuPDF': mupdf}
