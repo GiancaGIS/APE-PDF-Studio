@@ -4,6 +4,7 @@ PDF parsing, font metrics, redaction and layout run only in the document worker.
 The UI receives immutable records and a bounded layout summary, never fonts.
 """
 from collections import Counter
+from .pdf_runtime import open_static_pdf
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 import io
@@ -176,7 +177,7 @@ def _target(source, page, number, group):
 
 def paragraph_at(source, number, position):
     import pymupdf
-    with pymupdf.open(stream=source.read_bytes(), filetype='pdf') as document:
+    with open_static_pdf(stream=source.read_bytes(), filetype='pdf') as document:
         page = document[number]
         point = pymupdf.Point(*position) * page.derotation_matrix
         candidates = [(group, span) for group in _groups(page) for line in group
@@ -189,7 +190,7 @@ def paragraph_at(source, number, position):
 
 def paragraph_boxes(source, number):
     import pymupdf
-    with pymupdf.open(stream=source.read_bytes(), filetype='pdf') as document:
+    with open_static_pdf(stream=source.read_bytes(), filetype='pdf') as document:
         page = document[number]
         boxes = []
         # Geometry scanning avoids font extraction and obstacle analysis per group.
@@ -318,7 +319,7 @@ def _layout(document, page, target, text, size, alignment):
 
 def paragraph_info(source, target, text, size, alignment):
     import pymupdf
-    with pymupdf.open(stream=source.read_bytes(), filetype='pdf') as document:
+    with open_static_pdf(stream=source.read_bytes(), filetype='pdf') as document:
         try:
             _, bbox, count, fonts = _layout(document, document[target.page], target, text, size, alignment)
             return dict(bbox=tuple(pymupdf.Rect(bbox) * document[target.page].rotation_matrix), lines=count,
@@ -333,7 +334,7 @@ def replace_paragraph(writer, reader, source, target, text, size, alignment):
     import pymupdf
     from pypdf import PdfReader
     from pypdf.generic import NameObject
-    with pymupdf.open(stream=source.read_bytes(), filetype='pdf') as document:
+    with open_static_pdf(stream=source.read_bytes(), filetype='pdf') as document:
         page = document[target.page]
         # Re-derive editable geometry, style and free space from the accepted PDF.
         groups = [group for group in _groups(page) if any(address == target.members[0].address
@@ -355,7 +356,7 @@ def replace_paragraph(writer, reader, source, target, text, size, alignment):
         rotation = page.rotation
         page.set_rotation(0)
         rect = page.rect
-        with pymupdf.open() as overlay:
+        with open_static_pdf() as overlay:
             output_page = overlay.new_page(width=rect.width, height=rect.height)
             # Keep drawing order as well as inline styles so later extraction
             # and subsequent paragraph edits retain the logical word order.

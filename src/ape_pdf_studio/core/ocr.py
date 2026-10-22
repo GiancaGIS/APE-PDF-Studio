@@ -1,5 +1,6 @@
 """Local OCR: preserve the original PDF and merge only invisible text layers."""
 from __future__ import annotations
+from .pdf_runtime import open_static_pdf
 from .localization import tr
 
 import hashlib
@@ -8,6 +9,7 @@ import json
 import math
 import os
 from pathlib import Path
+from .user_paths import user_path, same_file
 import sys
 import tempfile
 from .private_work import PrivateDirectory
@@ -122,8 +124,8 @@ def recognize_pdf(source, destination, *, language="ita+eng", pages=None, dpi=30
     """Return recognized/skipped/empty page numbers; commit the complete PDF atomically."""
     import pymupdf
 
-    source, destination = Path(source).resolve(), Path(destination).resolve()
-    if destination == source or destination.suffix.lower() != ".pdf":
+    source, destination = user_path(source), user_path(destination)
+    if same_file(destination, source) or destination.suffix.lower() != ".pdf":
         raise PDFOperationError(tr("La destinazione OCR deve essere un altro file .pdf."))
     if language not in LANGUAGES or dpi not in (150, 300):
         raise PDFOperationError(tr("Lingua o risoluzione OCR non valida."))
@@ -137,7 +139,7 @@ def recognize_pdf(source, destination, *, language="ita+eng", pages=None, dpi=30
             except PDFPasswordRequired as exc:
                 raise PDFOperationError(tr("I PDF protetti sono in sola lettura: OCR disabilitato.")) from exc
             configure_parser()
-            with PdfReader(snapshot) as reader, pymupdf.open(snapshot) as pdf:
+            with PdfReader(snapshot) as reader, open_static_pdf(snapshot) as pdf:
                 if reader.is_encrypted:
                     raise PDFOperationError(tr("I PDF protetti sono in sola lettura: OCR disabilitato."))
                 chosen = list(range(len(pdf))) if pages is None else list(pages)

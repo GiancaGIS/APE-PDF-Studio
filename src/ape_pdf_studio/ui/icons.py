@@ -3,7 +3,7 @@ from functools import lru_cache
 from importlib.resources import files
 
 from PySide6.QtCore import QByteArray, QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from .theme import theme_color
 
@@ -25,6 +25,8 @@ def application_icon():
 
 
 PATHS = {
+    'draw': [[(3,21),(5,14),(17,2),(22,7),(10,19),(3,21)],[(14,5),(19,10)],[(3,23),(9,22),(15,23),(21,20)]],
+    'watermark': [[(3,3),(21,3),(21,21),(3,21),(3,3)],[(5,16),(10,7),(13,16),(18,7)]],
     'edit_text': [[(4,5),(18,5)],[(11,5),(11,19)],[(7,19),(15,19)],[(18,11),(21,14),(15,20),(12,21),(13,18),(18,11)]],
     'split': [[(8,3),(16,3),(16,8)],[(12,8),(12,13)],[(12,13),(5,18),(5,22)],[(12,13),(19,18),(19,22)],[(3,20),(5,22),(7,20)],[(17,20),(19,22),(21,20)]],
     'print': [[(7,8),(7,3),(17,3),(17,8)],[(7,17),(3,17),(3,8),(21,8),(21,17),(17,17)],[(7,14),(17,14),(17,22),(7,22),(7,14)],[(17,11),(18,11)]],
@@ -50,6 +52,39 @@ PATHS = {
     'page': [[(5,3),(19,3),(19,21),(5,21),(5,3)]],
     'info': [[(12,10),(12,17)],[(12,7),(12,7.3)]],
 }
+
+def pen_cursor(color, device_pixel_ratio=1.0):
+    """Draw at the screen's resolution; the nib is the actual drawing point."""
+    pixmap = QPixmap(round(32 * device_pixel_ratio), round(32 * device_pixel_ratio))
+    pixmap.setDevicePixelRatio(device_pixel_ratio)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    outline = QPainterPath(QPointF(4, 28))
+    for point in ((7, 19), (23, 3), (29, 9), (13, 25)):
+        outline.lineTo(*point)
+    outline.closeSubpath()
+    # A light halo and dark edge keep the pen visible over any page content.
+    painter.setPen(QPen(QColor('white'), 3.5, Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    painter.setBrush(QColor(color))
+    painter.drawPath(outline)
+    edge = QPen(QColor('#182537'), 1.3, Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(edge)
+    painter.drawPath(outline)
+    nib = QPainterPath(QPointF(4, 28))
+    nib.lineTo(7, 19)
+    nib.lineTo(13, 25)
+    nib.closeSubpath()
+    painter.setBrush(QColor('white'))
+    painter.drawPath(nib)
+    painter.drawLine(QPointF(4, 28), QPointF(8, 24))
+    painter.setPen(QPen(QColor('white'), 1.4))
+    painter.drawLine(QPointF(20, 6), QPointF(26, 12))
+    painter.end()
+    return QCursor(pixmap, 4, 28)
+
 
 def icon(name, color=None):
     color = color or theme_color("icon")

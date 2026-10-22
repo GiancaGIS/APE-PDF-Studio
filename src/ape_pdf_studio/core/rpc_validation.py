@@ -96,7 +96,25 @@ def annotations(value,*,links=False):
 
 
 def result(method,value):
-    if method in ('text_boxes','paragraph_boxes'):
+    if method == 'ink':
+        if (not isinstance(value,dict) or set(value)!={'rows','truncated'} or
+                type(value['truncated']) is not bool or not isinstance(value['rows'],list) or len(value['rows'])>2000):
+            raise ValueError('Invalid ink response')
+        total=0
+        for row in value['rows']:
+            if not isinstance(row,dict) or set(row)!={'page','index','paths','color','width','opacity'}:
+                raise ValueError('Invalid ink record')
+            integer(row['page'],0,2999);integer(row['index'],0,1000000)
+            geometry(row['color'],3);geometry((row['width'],row['opacity']),2)
+            if (any(not 0<=c<=1 for c in row['color']) or not .01<=row['width']<=10000 or not 0<=row['opacity']<=1 or
+                    not isinstance(row['paths'],list) or not 1<=len(row['paths'])<=200000):
+                raise ValueError('Invalid ink style')
+            for path in row['paths']:
+                if not isinstance(path,list) or not 1<=len(path)<=8000:raise ValueError('Invalid ink path')
+                total+=len(path)
+                if total>20000:raise ValueError('Too many ink points')
+                for point in path:geometry(point,2)
+    elif method in ('text_boxes','paragraph_boxes'):
         if not isinstance(value,list) or len(value)>20000:raise ValueError('Invalid text boxes')
         for box in value:
             geometry(box)

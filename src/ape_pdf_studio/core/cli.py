@@ -5,6 +5,7 @@ from .localization import tr
 import argparse
 import sys
 from pathlib import Path
+from .user_paths import user_path
 
 from .editor import parse_page_range
 from .errors import PDFOperationError
@@ -51,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         editor = PDFEditor(args.input)
         if args.command == "info":
-            print(tr('File: {0}', args.input.resolve()))
+            print(tr('File: {0}', user_path(args.input)))
             print(tr('Protetto: {0}', tr('Sì') if editor.encrypted else tr('No')))
             if not editor.encrypted:
                 print(tr('Pagine: {0}', editor.metadata().page_count))
@@ -69,10 +70,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "extract":
             pages = parse_page_range(args.pages, editor.metadata().page_count)
             editor.extract(pages, args.output)
-            print(tr('Creato: {0}', args.output.resolve()))
+            print(tr('Creato: {0}', user_path(args.output)))
             return 0
         editor.save_as(args.output)
-        print(tr('Creato: {0}', args.output.resolve()))
+        print(tr('Creato: {0}', user_path(args.output)))
         return 0
     except (PDFOperationError, OSError) as exc:
         print(tr('ERRORE: {0}', exc), file=sys.stderr)

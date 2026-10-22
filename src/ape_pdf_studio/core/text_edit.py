@@ -6,6 +6,7 @@ import math
 import unicodedata
 
 from .errors import PDFOperationError
+from .pdf_runtime import open_static_pdf
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ def supported_paint(span):
 
 def find_target(source, number, position):
     import pymupdf
-    with pymupdf.open(stream=source.read_bytes(), filetype="pdf") as document:
+    with open_static_pdf(stream=source.read_bytes(), filetype="pdf") as document:
         page = document[number]
         point = pymupdf.Point(*position) * page.derotation_matrix
         hits = [(address, line, span) for address, line, span in text_spans(page)
@@ -73,7 +74,7 @@ def find_target(source, number, position):
 def editable_boxes(source, number):
     """Return bounded geometry only; the UI never parses PDF text objects."""
     import pymupdf
-    with pymupdf.open(stream=source.read_bytes(), filetype="pdf") as document:
+    with open_static_pdf(stream=source.read_bytes(), filetype="pdf") as document:
         page = document[number]
         boxes = []
         for _, line, span in text_spans(page):
@@ -117,7 +118,7 @@ def replacement_font(document, page, target, text):
 
 def font_details(source, target, text=None):
     import pymupdf
-    with pymupdf.open(stream=source.read_bytes(), filetype="pdf") as document:
+    with open_static_pdf(stream=source.read_bytes(), filetype="pdf") as document:
         _, name, fallback = replacement_font(document, document[target.page], target, text or target.text)
     return name, fallback
 
@@ -137,7 +138,7 @@ def replace_page(writer, reader, source, target, text, size):
         raise PDFOperationError(tr("Inserisci una riga non vuota. Testo multilinea, scritture complesse e caratteri di controllo non sono ancora supportati."))
     if not math.isfinite(size) or not .5 <= size <= 300:
         raise PDFOperationError(tr("Dimensione del testo non valida."))
-    with pymupdf.open(stream=source.read_bytes(), filetype="pdf") as document:
+    with open_static_pdf(stream=source.read_bytes(), filetype="pdf") as document:
         page = document[target.page]
         spans = text_spans(page)
         matching = [span for address, _, span in spans if address == target.address]
@@ -166,7 +167,7 @@ def replace_page(writer, reader, source, target, text, size):
         # TextWriter's direct CropBox compensation differs from PDF page space.
         # Write on a normalized transparent page, then place its vector content
         # through MuPDF's page transformation (including crop and UserUnit).
-        with pymupdf.open() as overlay:
+        with open_static_pdf() as overlay:
             overlay_page = overlay.new_page(width=unrotated.width, height=unrotated.height)
             output = pymupdf.TextWriter(overlay_page.rect)
             output.append(target.origin, text, font=font, fontsize=size)

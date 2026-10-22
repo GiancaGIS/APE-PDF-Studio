@@ -5,6 +5,7 @@ from ..core.localization import tr
 import json
 import math
 from pathlib import Path
+from ..core.user_paths import user_path
 import sys
 import tempfile
 from ..core.private_work import PrivateDirectory
@@ -22,7 +23,7 @@ from ..core.sandbox import wrap_command
 
 
 def export_page_image(pdf: QPdfDocument, page: int, destination: Path, dpi: int = 150) -> None:
-    destination = Path(destination).resolve()
+    destination = user_path(destination)
     formats = {".png": b"png", ".jpg": b"jpeg", ".jpeg": b"jpeg"}
     if destination.suffix.lower() not in formats:
         raise PDFOperationError(tr("Scegli un'immagine PNG oppure JPEG."))
@@ -68,7 +69,7 @@ class DocxExportJob(QObject):
 
     def __init__(self, source: Path, destination: Path, parent=None, *, zone=None):
         super().__init__(parent)
-        self.destination = Path(destination).resolve()
+        self.destination = user_path(destination)
         from ..core.provenance import read_zone
         self._zone=zone if zone is not None else read_zone(Path(source))
         self._work = PrivateDirectory(prefix="apex_word_job_")

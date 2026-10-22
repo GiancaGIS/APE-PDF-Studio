@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from .user_paths import user_path, same_file
 import logging
 import queue
 import subprocess
@@ -21,7 +22,7 @@ from .provenance import read_zone
 
 class BrokerEditor:
     def __init__(self,source,password=None):
-        self.source=Path(source).expanduser().resolve()
+        self.source=user_path(source)
         self.output_path=self.source
         self._zone=read_zone(self.source)
         if not self.source.is_file() or self.source.suffix.lower()!='.pdf':
@@ -198,8 +199,8 @@ class BrokerEditor:
         finally:snapshot.unlink(missing_ok=True)
 
     def extract(self,pages,destination):
-        destination=Path(destination).expanduser().resolve()
-        if destination in [self.source,self.output_path,*self._state['revisions']]:
+        destination=user_path(destination)
+        if any(same_file(destination,path) for path in [self.source,self.output_path,*self._state['revisions']]):
             raise PDFOperationError('Scegli un altro nome per la copia estratta.')
         artifact=self._root/(uuid4().hex+'.pdf')
         try:
@@ -212,8 +213,8 @@ class BrokerEditor:
     def save_as(self,destination):
         if self.encrypted:
             raise PDFOperationError('I PDF protetti non possono essere risalvati con questa versione.')
-        destination=Path(destination).expanduser().resolve()
-        if destination.suffix.lower()!='.pdf' or not destination.parent.is_dir() or destination.is_relative_to(self._root):
+        destination=user_path(destination)
+        if destination.suffix.lower()!='.pdf' or not destination.parent.is_dir() or destination.resolve().is_relative_to(self._root):
             raise PDFOperationError('Scegli un file PDF esterno alla cartella di lavoro.')
         self.checked_path(self.path)
         check_budget(self._root)
@@ -230,8 +231,8 @@ class BrokerEditor:
         """
         from .pdf_split import validate_groups,part_name
         from .localization import tr
-        directory=Path(directory).expanduser().resolve()
-        if not directory.is_dir() or directory.is_relative_to(self._root):
+        directory=user_path(directory)
+        if not directory.is_dir() or directory.resolve().is_relative_to(self._root):
             raise PDFOperationError(tr('Scegli una cartella di destinazione esistente.'))
         with self._lock:
             if self.encrypted:

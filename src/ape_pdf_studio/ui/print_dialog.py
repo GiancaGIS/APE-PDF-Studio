@@ -1,6 +1,7 @@
 """Application-owned print controls and live sheet preview, without native dialogs."""
 from ..core.localization import tr
 from pathlib import Path
+from ..core.user_paths import user_path, same_file
 
 from PySide6.QtCore import QBuffer, QIODevice, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QImage, QPainter, QPageLayout, QPageSize, QPen
@@ -505,8 +506,8 @@ class PrintDialog(QDialog):
             self.output = Path(destination).expanduser()
             if self.output.suffix.lower() != ".pdf":
                 self.output = self.output.with_suffix(".pdf")
-            self.output = self.output.resolve()
-            if self.output.resolve() in {self.tab.editor.source.resolve(), self.tab.editor.output_path.resolve()}:
+            self.output = user_path(self.output)
+            if any(same_file(self.output, path) for path in (self.tab.editor.source, self.tab.editor.output_path)):
                 self.feedback.setText(tr("Scegli un nome diverso dal documento aperto per la copia di stampa."))
                 return
             parent = self.parentWidget()

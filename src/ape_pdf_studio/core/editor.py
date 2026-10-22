@@ -13,6 +13,7 @@ import math
 import shutil
 import tempfile
 from pathlib import Path
+from .user_paths import user_path, same_file
 from typing import Callable
 from uuid import uuid4
 
@@ -33,7 +34,7 @@ class PDFEditor:
     """Owns one PDF's immutable source, working snapshots and save target."""
 
     def __init__(self, source: str | Path, password: str | None = None):
-        self.source = Path(source).expanduser().resolve()
+        self.source = user_path(source)
         if not self.source.is_file() or self.source.suffix.lower() != ".pdf":
             raise PDFOperationError(tr("Seleziona un file PDF esistente."))
         self._temp = PrivateDirectory()
@@ -213,6 +214,30 @@ class PDFEditor:
 
         self._commit(op, copy_metadata=False)
 
+    def insert_blank(self, index: int, reference: int = 0, paper: str = 'same') -> None:
+        from .document_tools import insert_blank
+        self._commit(lambda writer, reader: insert_blank(writer, reader, index, reference, paper))
+
+    def add_watermark(self, text, size, color, opacity, angle) -> None:
+        from .document_tools import watermark
+        self._commit(lambda writer, reader: watermark(writer, reader, text, size, color, opacity, angle))
+
+    def ink(self):
+        from .ink import read_ink
+        with PdfReader(self.path) as reader:
+            if reader.is_encrypted and not reader.decrypt(self._password or ''):
+                raise PDFPasswordRequired(tr("Password necessaria o non corretta."))
+            return read_ink(reader)
+
+    def update_ink(self, strokes, deleted, revision) -> None:
+        from .ink import apply_ink
+        if str(revision) != str(self.path):
+            raise PDFOperationError(tr("Il documento è cambiato. Ripeti l'operazione."))
+        if not isinstance(strokes, list) or not isinstance(deleted, list):
+            raise PDFOperationError('Invalid ink batch')
+        if strokes or deleted:
+            self._commit(lambda writer, reader: apply_ink(writer, reader, strokes, deleted))
+
     def rotate(self, page: int, degrees: int = 90) -> None:
         if degrees not in (90, 180, 270, -90, -180, -270):
             raise PDFOperationError(tr("Rotazione consentita: multipli di 90°."))
@@ -286,7 +311,7 @@ class PDFEditor:
         self._commit(op)
 
     def insert_pdf(self, filename: str | Path, after_page: int) -> None:
-        incoming = Path(filename).expanduser().resolve()
+        incoming = user_path(filename)
         if not incoming.is_file():
             raise PDFOperationError(tr("Il PDF da inserire non esiste."))
 
@@ -430,7 +455,7 @@ class PDFEditor:
         self._commit(op)
 
     def extract(self, pages: list[int], destination: str | Path) -> Path:
-        if Path(destination).expanduser().resolve() in [*self._revisions, self.source, self.output_path]:
+        if any(same_file(destination, path) for path in [*self._revisions, self.source, self.output_path]):
             raise PDFOperationError(tr("Non puoi estrarre sopra un PDF aperto nella cronologia. Scegli un altro nome."))
         reader = self._reader()
         try:
@@ -541,7 +566,7 @@ class PDFEditor:
         self._commit(op, copy_metadata=False)
 
     def _atomic_write(self, writer: PdfWriter, destination: Path) -> Path:
-        destination = destination.expanduser().resolve()
+        destination = user_path(destination)
         if destination.suffix.lower() != ".pdf":
             raise PDFOperationError(tr("Il file di destinazione deve terminare con .pdf."))
         if not destination.parent.is_dir():
@@ -562,8 +587,8 @@ class PDFEditor:
     def save_as(self, destination: str | Path) -> Path:
         if self.encrypted:
             raise PDFOperationError(tr("I PDF protetti non possono essere risalvati con questa versione."))
-        destination = Path(destination).expanduser().resolve()
-        if destination == self.path:
+        destination = user_path(destination)
+        if same_file(destination, self.path):
             self.output_path = destination
             self._saved_index = self._index
             return destination

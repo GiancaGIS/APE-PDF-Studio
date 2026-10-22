@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+from .user_paths import user_path, same_file
 import sys
 import tempfile
 from .private_work import PrivateDirectory
@@ -85,10 +86,10 @@ def _image_page(document, page) -> None:
 
 def convert_pdf_to_docx(source: str | Path, destination: str | Path,
                         progress: Callable[[int, int, str], None] | None = None) -> dict:
-    source, destination = Path(source).resolve(), Path(destination).resolve()
+    source, destination = user_path(source), user_path(destination)
     if not source.is_file() or source.suffix.lower() != ".pdf":
         raise PDFOperationError(tr("Seleziona un PDF esistente da convertire."))
-    if destination.suffix.lower() != ".docx" or destination == source:
+    if destination.suffix.lower() != ".docx" or same_file(destination, source):
         raise PDFOperationError(tr("La destinazione deve essere un nuovo file .docx."))
     try:
         from pdf2docx import Converter
@@ -106,6 +107,8 @@ def convert_pdf_to_docx(source: str | Path, destination: str | Path,
             except PDFPasswordRequired as exc:
                 raise PDFOperationError(tr("I PDF protetti sono in sola lettura: esportazione disabilitata.")) from exc
             converter = Converter(str(snapshot))
+            from .pdf_runtime import disable_javascript
+            disable_javascript(converter.fitz_doc)
             pdf = converter.fitz_doc
             if pdf.is_encrypted:
                 raise PDFOperationError(tr("I PDF protetti sono in sola lettura: esportazione disabilitata."))

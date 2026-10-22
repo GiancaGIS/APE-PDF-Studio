@@ -44,6 +44,7 @@ class TextPdfView(RemotePdfView):
         self.form_fields = ()
         self.inline_form = None
         self.inline_text = None
+        self.ink = None
         self.form_designer = None
         self._interaction_click = None
         self._interaction_start = None
@@ -678,4 +679,6 @@ class TextPdfView(RemotePdfView):
                 painter.setBrush(selection_color)
                 for polygon in self.selection.bounds():
                     painter.drawPolygon(transform.map(polygon))
+            if self.ink:
+                self.ink.paint(painter, page, transform)
         painter.end()
