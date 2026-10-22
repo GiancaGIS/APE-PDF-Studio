@@ -1,5 +1,6 @@
 """Bounded geometric form suggestions. Suggestions are never applied automatically."""
 from __future__ import annotations
+from .pdf_runtime import open_static_pdf
 
 from pathlib import Path
 import re
@@ -75,7 +76,7 @@ def detect_fields(source, pages, *, cache_dir=None, use_ocr=True):
         reserved_names = document_field_names(reader)
         if len(existing) >= MAX_FIELDS:
             return dict(proposals=[], warnings=[tr("Raggiunto il limite di 500 campi: analizza meno pagine per volta.")])
-    with pymupdf.open(source) as document:
+    with open_static_pdf(source) as document:
         if not isinstance(pages, list) or not 0 < len(pages) <= MAX_ANALYSIS_PAGES or len(set(pages)) != len(pages) or any(
                 type(page) is not int or not 0 <= page < len(document) for page in pages):
             raise ValueError("Invalid page selection")
@@ -119,7 +120,7 @@ def detect_fields(source, pages, *, cache_dir=None, use_ocr=True):
                         ocr_pixels = pymupdf.Pixmap(pymupdf.csRGB,pixels)
                         ocr_pixels.set_dpi(max(1, round(pixels.width/page.rect.width*72)), max(1, round(pixels.height/page.rect.height*72)))
                         data = ocr_pixels.pdfocr_tobytes(language="ita+eng", tessdata=str(tessdata))
-                        with pymupdf.open(stream=data, filetype="pdf") as recognized:
+                        with open_static_pdf(stream=data, filetype="pdf") as recognized:
                             ocr_page = recognized[0]
                             sx, sy = page.rect.width/ocr_page.rect.width, page.rect.height/ocr_page.rect.height
                             words = [(w[0]*sx,w[1]*sy,w[2]*sx,w[3]*sy,str(w[4])[:256]) for w in ocr_page.get_text("words")]

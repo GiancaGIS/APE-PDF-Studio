@@ -52,6 +52,8 @@ class DocumentNotice(QFrame):
         if info.warnings:
             parts.append(tr("Lettura metadati incompleta"))
         security = self.editor.security_report
+        if "javascript" in security.findings:
+            parts.append(tr("JavaScript incorporato · esecuzione disabilitata"))
         if "attachments" in security.findings:
             parts.append(tr("Allegati incorporati · apertura disabilitata"))
         if "external_links" in security.findings:
@@ -69,6 +71,8 @@ class DocumentNotice(QFrame):
                      "Controllo preventivo attivo: dettagli nella scheda Sicurezza. Non è una scansione antivirus.")
         if self.editor.encrypted:
             tooltip = tr("Il documento è protetto. Le modifiche e il salvataggio sono disabilitati.") + "\n" + tooltip
+        if "javascript" in security.findings:
+            tooltip += "\n" + tr("JavaScript non viene eseguito. Calcoli, convalide e pulsanti basati su script potrebbero non funzionare.")
         self.setToolTip(tooltip)
         self.setProperty("modified", bool(modified))
         self.setProperty("securityWarning", bool(security.findings))

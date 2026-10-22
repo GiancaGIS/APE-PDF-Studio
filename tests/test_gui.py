@@ -950,7 +950,7 @@ def test_security_rejects_active_pdf_before_qt_load(window, tmp_path, monkeypatc
     writer = PdfWriter()
     writer.add_blank_page(400, 600)
     writer.root_object[NameObject("/OpenAction")] = writer._add_object(DictionaryObject({
-        NameObject("/S"): NameObject("/JavaScript"), NameObject("/JS"): TextStringObject("synthetic test")}))
+        NameObject("/S"): NameObject("/Launch")}))
     source = tmp_path / "active.pdf"
     writer.write(source)
     errors = []
@@ -959,7 +959,7 @@ def test_security_rejects_active_pdf_before_qt_load(window, tmp_path, monkeypatc
     previous = window.current
     window.open_pdf(source)
     assert window.tabs.count() == 1 and window.current is previous
-    assert len(errors) == 1 and "JavaScript" in errors[0]
+    assert len(errors) == 1 and "avvio" in errors[0]
 
 
 def test_security_details_and_attachment_notice_are_visible(window, tmp_path):

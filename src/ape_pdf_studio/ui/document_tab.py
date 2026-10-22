@@ -31,6 +31,7 @@ from .theme import theme_color
 from .inline_forms import InlineForms
 from .inline_text import InlineText
 from .form_designer import FormDesigner
+from .ink import InkController
 
 
 class SearchResultDelegate(QStyledItemDelegate):
@@ -183,6 +184,9 @@ class DocumentTab(QWidget):
         self.inline_text = InlineText(self)
         self.viewer.inline_text = self.inline_text
         self.inline_text.changed.connect(self.changed)
+        self.ink = InkController(self)
+        self.viewer.ink = self.ink
+        root.insertWidget(1, self.ink.bar)
         self.pdf.statusChanged.connect(self._on_pdf_status)
         try:
             self._reload(0)
@@ -197,14 +201,14 @@ class DocumentTab(QWidget):
 
     @property
     def dirty(self):
-        return self.editor.dirty or self.inline_form.dirty or self.inline_text.dirty
+        return self.editor.dirty or self.inline_form.dirty or self.inline_text.dirty or self.ink.dirty
 
     def _commit_inline_form(self, values, revision):
         self.apply_edit("fill_form", values, revision)
         return self.editor.path
 
     def finish_form(self):
-        return self.inline_form.finish() and self.inline_text.finish()
+        return self.inline_form.finish() and self.inline_text.finish() and self.ink.finish()
 
     @property
     def page(self) -> int:
@@ -226,6 +230,7 @@ class DocumentTab(QWidget):
         self.notice.links_enabled = self.links_enabled
         self.notice.refresh()
         self.viewer.notes = self.editor.notes()
+        self.ink.document_changed()
         self._pending_page = target_page
         self._initializing = True
         self._thumb_cache.clear()
@@ -354,14 +359,18 @@ class DocumentTab(QWidget):
             current = max(0, current - 1)
         elif method == "move":
             current += args[1]
+        elif method == "insert_blank":
+            current = args[0]
         self._pending_page = current
         self._reload(current)
-        if method in ("fill_form", "replace_text", "replace_paragraph"):
+        if method in ("fill_form", "replace_text", "replace_paragraph", "update_ink"):
             self.viewer.horizontalScrollBar().setValue(scroll[0])
             self.viewer.verticalScrollBar().setValue(scroll[1])
         self.changed.emit()
 
     def undo(self) -> None:
+        if self.ink.undo():
+            return
         if not self.finish_form():
             return
         if self.editor.undo():
@@ -369,6 +378,8 @@ class DocumentTab(QWidget):
             self._reload(self.page)
 
     def redo(self) -> None:
+        if self.ink.redo():
+            return
         if not self.finish_form():
             return
         if self.editor.redo():
@@ -385,6 +396,7 @@ class DocumentTab(QWidget):
         dialog.deleteLater()
 
     def close_document(self) -> None:
+        self.ink.shutdown()
         self.inline_text.shutdown()
         self.form_designer.shutdown()
         self.inline_form.shutdown()

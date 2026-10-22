@@ -126,6 +126,8 @@ class InlineText(QObject):
             return False
         if not self.tab.inline_form.finish():
             return False
+        if self.tab.ink.active and not self.tab.ink.deactivate():
+            return False
         self.active = True
         self.view._cancel_placement()
         self.view.clear_selection()

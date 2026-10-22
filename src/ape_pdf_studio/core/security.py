@@ -26,7 +26,7 @@ MAX_STREAM_BYTES = 32 * 1024 * 1024
 SCAN_TIMEOUT = 12
 
 FINDINGS = {
-    "javascript": "JavaScript incorporato",
+    "javascript": "JavaScript incorporato · esecuzione disabilitata",
     "launch": "Azioni di avvio di file o programmi",
     "external_action": "Azioni esterne o invio/importazione di dati",
     "multimedia": "Contenuti multimediali attivi o 3D",
@@ -37,7 +37,9 @@ FINDINGS = {
     "attachments": "Allegati incorporati: apertura ed esecuzione disabilitate",
     "external_links": "Collegamenti web/email: disabilitati fino alla conferma dell'utente",
 }
-BLOCKED = frozenset(FINDINGS) - {"attachments", "external_links"}
+# JavaScript remains detectable and is never executed: Qt receives scrubbed
+# display copies, while all MuPDF documents use the non-scripting runtime guard.
+BLOCKED = frozenset(FINDINGS) - {"javascript", "attachments", "external_links"}
 
 
 @dataclass(frozen=True)

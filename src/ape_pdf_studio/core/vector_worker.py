@@ -10,13 +10,14 @@ def main():
     if not getattr(sys, "frozen", False):
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from ape_pdf_studio.core.security_worker import require_memory_limit
+    from ape_pdf_studio.core.pdf_runtime import open_static_pdf
     require_memory_limit()
     from ape_pdf_studio.core.vector_page import prepare_svg
     from ape_pdf_studio.core.vector_protocol import from_svg
     import pymupdf
     request = json.loads(sys.stdin.buffer.read(65536))
     # Release filesystem handles before conversion; undo can remove revisions.
-    with pymupdf.open(stream=Path(request["path"]).read_bytes(), filetype="pdf") as document:
+    with open_static_pdf(stream=Path(request["path"]).read_bytes(), filetype="pdf") as document:
         if document.needs_pass and not document.authenticate(request.get("password") or ""):
             raise ValueError("Password richiesta")
         page = document[request["page"]]

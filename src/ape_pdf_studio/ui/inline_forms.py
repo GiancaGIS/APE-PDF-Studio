@@ -67,6 +67,8 @@ class InlineForms(QObject):
                       if rect[2] > rect[0] and rect[3] > rect[1])
 
     def start(self, name=None, position=None, index=None, *, clicked=False):
+        if self.view.ink and self.view.ink.active and not self.view.ink.deactivate():
+            return False
         if self.view.inline_text and not self.view.inline_text.deactivate():
             return False
         entries = self.entries()

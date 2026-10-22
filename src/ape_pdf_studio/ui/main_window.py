@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from ..core.user_paths import user_path, same_file
 from .. import __version__
 
 from PySide6.QtCore import QSettings, QSignalBlocker, QSize, Qt, QTimer, QUrl
@@ -40,6 +41,7 @@ from .theme import DEFAULT_THEME, apply_theme, normalize_theme, theme_color
 from .toast import CompletionToast, UpdateToast
 from .content_dialogs import NoteDialog, TextEditDialog
 from .split_dialog import SplitDialog
+from .document_tools import BlankPageDialog, WatermarkDialog, EditProgress
 from .print_dialog import PrintDialog
 from .ocr import OcrDialog, OcrJob
 from .language import configure_language
@@ -210,6 +212,10 @@ class MainWindow(QMainWindow):
         self.a_up = self._action(tr("Sposta pagina su"), lambda: self._edit("move", self.current.page, -1), edit=True)
         self.a_down = self._action(tr("Sposta pagina giù"), lambda: self._edit("move", self.current.page, 1), edit=True)
         self.a_insert = self._action(tr("Inserisci altro PDF…"), self.insert_pdf, edit=True)
+        self.a_blank = self._action(tr('Inserisci pagina bianca…'), self.insert_blank, edit=True)
+        self.a_watermark = self._action(tr('Aggiungi filigrana…'), self.add_watermark, edit=True)
+        self.a_draw = self._action(tr('Disegna a mano libera'), lambda: self.current.ink.toggle(), edit=True)
+        self.a_draw.setCheckable(True)
         self.a_note = self._action(tr("Aggiungi nota…"), self.add_note, "Ctrl+M", edit=True)
         self.a_edit_text = self._action(tr("Modifica testo…"), lambda: self.current.inline_text.toggle(), edit=True)
         self.a_edit_text.setCheckable(True)
@@ -236,6 +242,7 @@ class MainWindow(QMainWindow):
         icon_names = {"open": "open", "save_current": "save", "save": "save", "print": "print", "undo": "undo", "redo": "redo",
                       "rotate": "rotate", "delete": "delete", "note": "note", "copy": "copy", "edit_text": "edit_text",
                       "highlight": "highlight", "underline": "underline", "insert": "insert", "extract": "extract", "split": "split",
+                      "blank": "insert", "watermark": "watermark", "draw": "draw",
                       "prev": "prev", "next": "next", "zoom_out": "minus", "zoom_in": "plus",
                       "fit_width": "width", "fit_page": "page", "find": "search", "find_prev": "up", "find_next": "down", "sidebar": "sidebar", "info": "info"}
         for name, glyph in icon_names.items():
@@ -257,7 +264,7 @@ class MainWindow(QMainWindow):
         menu_file.insertMenu(self.a_info, exports)
         menu_edit = self.menuBar().addMenu(tr("Modifica"))
         for a in (self.a_undo, self.a_redo, self.a_rotate, self.a_rotate_ccw,
-                  self.a_delete, self.a_up, self.a_down, self.a_insert, self.a_note,
+                  self.a_delete, self.a_up, self.a_down, self.a_insert, self.a_blank, self.a_watermark, self.a_draw, self.a_note,
                   self.a_copy, self.a_highlight, self.a_underline, self.a_edit_text, self.a_ocr, self.a_form,self.a_prepare_form):
             menu_edit.addAction(a)
         menu_view = self.menuBar().addMenu(tr("Visualizza"))
@@ -302,6 +309,9 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.a_edit_text)
         self.a_edit_text.setIconText(tr("Modifica testo"))
         toolbar.widgetForAction(self.a_edit_text).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        toolbar.addAction(self.a_draw)
+        self.a_draw.setIconText(tr('Disegna'))
+        toolbar.widgetForAction(self.a_draw).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.annotate_button = QToolButton()
         self.annotate_button.setText(tr("Annota"))
         self.annotate_button.setIcon(icon("highlight"))
@@ -311,6 +321,7 @@ class MainWindow(QMainWindow):
         annotations = QMenu(self.annotate_button)
         annotations.addActions([self.a_copy, self.a_highlight, self.a_underline, self.a_note, self.a_edit_text, self.a_ocr, self.a_form])
         annotations.addAction(self.a_prepare_form)
+        annotations.addActions([self.a_draw, self.a_watermark])
         self.annotate_button.setMenu(annotations)
         self.annotate_control = toolbar.addWidget(self.annotate_button)
         self.pages_button = QToolButton()
@@ -324,7 +335,7 @@ class MainWindow(QMainWindow):
         pages.addSeparator()
         pages.addActions([self.a_up, self.a_down, self.a_delete])
         pages.addSeparator()
-        pages.addActions([self.a_insert, self.a_extract, self.a_split, self.a_export_image])
+        pages.addActions([self.a_blank, self.a_insert, self.a_watermark, self.a_extract, self.a_split, self.a_export_image])
         self.pages_button.setMenu(pages)
         self.pages_control = toolbar.addWidget(self.pages_button)
         spacer = QWidget()
@@ -510,6 +521,7 @@ class MainWindow(QMainWindow):
             action.setEnabled(tab is not None and not tab.editor.encrypted)
         self.a_form.setEnabled(tab is not None and bool(tab.form_fields))
         self.a_edit_text.setChecked(tab is not None and tab.inline_text.active)
+        self.a_draw.setChecked(tab is not None and tab.ink.active)
         preparing = tab is not None and tab.form_designer.isVisible()
         self.a_prepare_form.setEnabled(tab is not None and not tab.editor.encrypted)
         if preparing:
@@ -527,8 +539,8 @@ class MainWindow(QMainWindow):
         if tab:
             if tab.search_model.searchString() != tab._query:
                 self._search_timer.start(180)
-            self.a_undo.setEnabled(tab.editor.can_undo and not preparing)
-            self.a_redo.setEnabled(tab.editor.can_redo and not preparing)
+            self.a_undo.setEnabled((tab.editor.can_undo or bool(tab.ink.history) or tab.ink.current is not None) and not preparing)
+            self.a_redo.setEnabled((tab.editor.can_redo or bool(tab.ink.future)) and not preparing)
             with QSignalBlocker(self.search):
                 self.search.setText(tab._query)
             self._update_page(tab.page, tab.count)
@@ -656,6 +668,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addActions([self.a_up, self.a_down, self.a_delete])
         menu.addSeparator()
+        menu.addAction(self.a_blank)
         menu.addAction(self.a_extract)
         menu.addAction(self.a_export_image)
         menu.exec(tab.thumbs.viewport().mapToGlobal(position))
@@ -674,10 +687,10 @@ class MainWindow(QMainWindow):
 
     def open_pdf(self, filename: Path) -> None:
         try:
-            path = filename.expanduser().resolve()
+            path = user_path(filename)
             for i in range(self.tabs.count()):
                 candidate = self.tabs.widget(i)
-                if candidate.editor.source == path or candidate.editor.output_path == path:
+                if same_file(candidate.editor.source, path) or same_file(candidate.editor.output_path, path):
                     self.tabs.setCurrentIndex(i)
                     return
             password = None
@@ -886,6 +899,36 @@ class MainWindow(QMainWindow):
         if confirmed == QMessageBox.StandardButton.Yes:
             self._edit("delete", tab.page)
 
+    def _document_tool(self, method, args):
+        tab = self.current
+        if not tab or not tab.finish_form():
+            return
+        page = args[0] if method == 'insert_blank' else tab.page
+        progress = EditProgress(tab.editor, method, args, self)
+        try:
+            progress.execute()
+        finally:
+            progress.deleteLater()
+        tab._reload(page)
+        tab.changed.emit()
+
+    def insert_blank(self):
+        tab = self.current
+        if not tab:
+            return
+        dialog = BlankPageDialog(tab.page, tab.count, self)
+        if dialog.exec():
+            self._run(lambda: self._document_tool('insert_blank', dialog.arguments()))
+        dialog.deleteLater()
+
+    def add_watermark(self):
+        if not self.current:
+            return
+        dialog = WatermarkDialog(self)
+        if dialog.exec():
+            self._run(lambda: self._document_tool('add_watermark', dialog.arguments()))
+        dialog.deleteLater()
+
     def insert_pdf(self) -> None:
         tab = self.current
         if not tab:
@@ -896,6 +939,8 @@ class MainWindow(QMainWindow):
 
     def add_note(self) -> None:
         tab = self.current
+        if tab and tab.ink.active and not tab.ink.deactivate():
+            return
         if not tab:
             return
         tab.viewer.begin_placement("note")
@@ -953,7 +998,7 @@ class MainWindow(QMainWindow):
     def _output_available(self, path: Path, tab: DocumentTab) -> bool:
         for index in range(self.tabs.count()):
             other = self.tabs.widget(index)
-            if other is not tab and path in (other.editor.source, other.editor.output_path):
+            if other is not tab and any(same_file(path, target) for target in (other.editor.source, other.editor.output_path)):
                 QMessageBox.warning(self, tr("Documento aperto"), tr("Il file è aperto in un'altra scheda. Scegli un altro nome."))
                 return False
         return True
@@ -963,7 +1008,7 @@ class MainWindow(QMainWindow):
         path = Path(destination).expanduser()
         if not path.suffix:
             path = path.with_suffix(".pdf")
-        return path.resolve()
+        return user_path(path)
 
     def save(self) -> None:
         if self.current:
@@ -1073,7 +1118,7 @@ class MainWindow(QMainWindow):
         path = Path(destination).expanduser()
         if not path.suffix:
             path = path.with_suffix(".jpg" if "JPEG" in selected_filter else ".png")
-        path = path.resolve()
+        path = user_path(path)
         if path.suffix.lower() not in (".png", ".jpg", ".jpeg"):
             QMessageBox.warning(self, tr("Formato immagine"), tr("Usa l'estensione .png, .jpg oppure .jpeg."))
             return
@@ -1096,7 +1141,7 @@ class MainWindow(QMainWindow):
         path = Path(destination).expanduser()
         if not path.suffix:
             path = path.with_suffix(".docx")
-        path = path.resolve()
+        path = user_path(path)
         if path.suffix.lower() != ".docx":
             QMessageBox.warning(self, tr("Formato Word"), tr("Usa l'estensione .docx."))
             return

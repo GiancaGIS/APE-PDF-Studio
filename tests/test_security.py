@@ -27,7 +27,7 @@ def write_pdf(tmp_path, change=lambda _writer: None, *, filename="input.pdf", pa
     return path
 
 
-@pytest.mark.parametrize("kind", ["/JavaScript", "/Launch", "/SubmitForm", "/ImportData", "/GoToR", "/GoToE", "/Rendition", "/Sound", "/Movie", "/UnknownAction"])
+@pytest.mark.parametrize("kind", ["/Launch", "/SubmitForm", "/ImportData", "/GoToR", "/GoToE", "/Rendition", "/Sound", "/Movie", "/UnknownAction"])
 def test_active_open_actions_blocked_before_main_process_parse(tmp_path, monkeypatch, kind):
     source = write_pdf(tmp_path, lambda w: w.root_object.update({NameObject("/OpenAction"): w._add_object(action(kind))}))
     original = source.read_bytes()
@@ -49,8 +49,8 @@ def test_javascript_name_tree_and_chained_page_actions_are_detected(tmp_path):
         go[NameObject("/Next")] = ArrayObject([ref])
         w.pages[0][NameObject("/AA")] = w._add_object(DictionaryObject({NameObject("/O"): w._add_object(go)}))
     source = write_pdf(tmp_path, change)
-    with pytest.raises(PDFSecurityError, match="JavaScript"):
-        PDFEditor(source)
+    report = security.check_pdf(source)
+    assert report.findings == ("javascript",) and not report.blocked
 
 
 def test_escaped_pdf_names_and_orphan_actions_are_detected(tmp_path):
@@ -60,8 +60,8 @@ def test_escaped_pdf_names_and_orphan_actions_are_detected(tmp_path):
     source = write_pdf(tmp_path, change)
     # pypdf repairs offsets: escaped names are parsed structurally, not grepped.
     source.write_bytes(source.read_bytes().replace(b"/JavaScript", b"/J#61vaScript"))
-    with pytest.raises(PDFSecurityError, match="JavaScript"):
-        PDFEditor(source)
+    report = security.check_pdf(source)
+    assert report.findings == ("javascript",) and not report.blocked
 
 
 @pytest.mark.parametrize("feature", ["xfa", "richmedia", "3d", "entities"])
@@ -149,8 +149,8 @@ def test_tagged_pdf_with_large_sparse_parent_tree_is_fully_checked(tmp_path, act
     source = tmp_path / "tagged.pdf"
     writer.write(source)
     if active_content:
-        with pytest.raises(PDFSecurityError, match="JavaScript"):
-            security.check_pdf(source)
+        report = security.check_pdf(source)
+        assert report.findings == ("javascript",) and not report.blocked
     else:
         assert security.check_pdf(source).findings == ()
 
@@ -167,8 +167,12 @@ def test_encrypted_active_content_is_checked_after_password(tmp_path):
     source = write_pdf(tmp_path, lambda w: w.root_object.update({NameObject("/OpenAction"): w._add_object(action("/JavaScript"))}), password="secret")
     with pytest.raises(PDFPasswordRequired):
         PDFEditor(source)
-    with pytest.raises(PDFSecurityError, match="JavaScript"):
-        PDFEditor(source, password="secret")
+    editor = PDFEditor(source, password="secret")
+    try:
+        assert editor.encrypted and editor.security_report.findings == ("javascript",)
+        assert not editor.security_report.blocked
+    finally:
+        editor.close()
 
 
 @pytest.mark.parametrize("algorithm", ["RC4-128", "AES-128", "AES-256"])
@@ -179,9 +183,13 @@ def test_owner_password_only_pdf_still_blocks_active_content(tmp_path, monkeypat
         writer.encrypt("", owner_password="owner-secret", algorithm=algorithm)
     source = write_pdf(tmp_path, change)
     original = source.read_bytes()
-    monkeypatch.setattr("ape_pdf_studio.core.editor.PdfReader", lambda *a, **k: pytest.fail("Unsafe main process parse"))
-    with pytest.raises(PDFSecurityError):
-        PDFEditor(source)
+    if kind == "/Launch":
+        monkeypatch.setattr("ape_pdf_studio.core.editor.PdfReader", lambda *a, **k: pytest.fail("Unsafe main process parse"))
+        with pytest.raises(PDFSecurityError):
+            PDFEditor(source)
+    else:
+        report = security.check_pdf(source)
+        assert report.findings == ("javascript",) and not report.blocked
     assert source.read_bytes() == original
 
 
@@ -286,8 +294,12 @@ def test_indirect_action_and_annotation_names_are_resolved(tmp_path, feature):
         else:
             annotation = DictionaryObject({NameObject("/Subtype"): w._add_object(NameObject("/RichMedia"))})
             w.pages[0][NameObject("/Annots")] = ArrayObject([w._add_object(annotation)])
-    with pytest.raises(PDFSecurityError, match="JavaScript" if feature == "javascript" else "multimediali"):
-        PDFEditor(write_pdf(tmp_path, change))
+    source = write_pdf(tmp_path, change)
+    if feature == "javascript":
+        assert security.check_pdf(source).findings == ("javascript",)
+    else:
+        with pytest.raises(PDFSecurityError, match="multimediali"):
+            PDFEditor(source)
 
 
 def test_unknown_additional_action_in_indirect_map_is_blocked(tmp_path):
@@ -305,8 +317,8 @@ def test_active_content_in_compressed_objects_is_detected(tmp_path):
         pdf.save(compressed, use_objstms=1)
     with PdfReader(compressed) as reader:
         assert reader.xref_objStm
-    with pytest.raises(PDFSecurityError, match="JavaScript"):
-        PDFEditor(compressed)
+    report = security.check_pdf(compressed)
+    assert report.findings == ("javascript",) and not report.blocked
 
 
 @pytest.mark.parametrize("encoding", ["utf-16", "utf-32"])

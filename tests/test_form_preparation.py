@@ -182,7 +182,7 @@ def test_hidden_field_names_cannot_be_overwritten(flat_forms,tmp_path):
 def test_active_content_is_rejected_by_detection(flat_forms,tmp_path):
     writer=PdfWriter(clone_from=flat_forms[0])
     writer.root_object[NameObject('/OpenAction')]=writer._add_object(DictionaryObject({
-        NameObject('/S'):NameObject('/JavaScript'),NameObject('/JS'):TextStringObject("app.alert('synthetic')")}))
+        NameObject('/S'):NameObject('/Launch')}))
     source=tmp_path/'active.pdf'
     writer.write(source)
     with pytest.raises(ValueError,match='Unsupported'):

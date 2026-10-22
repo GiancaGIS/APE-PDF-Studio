@@ -16,6 +16,7 @@ MAX_EDGE = 2048
 
 
 def render(data: bytes, edge: int, index: int) -> bytes:
+    from ape_pdf_studio.core.pdf_runtime import open_static_pdf
     from pypdf import PdfReader
     from ape_pdf_studio.core.security import (
         BLOCKED, MAX_FILE_BYTES, MAX_PAGES, configure_parser, inspect_reader,
@@ -29,7 +30,7 @@ def render(data: bytes, edge: int, index: int) -> bytes:
         if reader.is_encrypted or set(inspect_reader(reader)) & BLOCKED:
             raise ValueError("PDF cannot be previewed")
     import pymupdf
-    with pymupdf.open(stream=data, filetype="pdf") as document:
+    with open_static_pdf(stream=data, filetype="pdf") as document:
         if document.needs_pass or not 1 <= document.page_count <= MAX_PAGES or index >= document.page_count:
             raise ValueError("PDF cannot be previewed")
         page = document[index]

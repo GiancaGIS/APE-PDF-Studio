@@ -3,6 +3,7 @@ from ..core.localization import tr
 from dataclasses import dataclass
 import os
 from pathlib import Path
+from ..core.user_paths import same_file
 import tempfile
 
 from PySide6.QtCore import QObject, QRectF, QSize, QTimer, Qt, Signal
@@ -169,7 +170,7 @@ class PrintJob(QObject):
                 raise PDFOperationError(tr("Intervallo di stampa non valido."))
             if not self.printer.isValid():
                 raise PDFOperationError(tr("La stampante non è disponibile."))
-            if self.output and self.output.resolve() == Path(self.path).resolve():
+            if self.output and same_file(self.output, self.path):
                 raise PDFOperationError(tr("La copia di stampa richiede un nome diverso dal documento sorgente."))
             self.printer.setFullPage(True)  # Origin at physical sheet, margins handled explicitly.
             self.printer.setCopyCount(1)  # Same deterministic copies/order on every driver.

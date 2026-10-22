@@ -156,6 +156,7 @@ class FormDesigner(QWidget):
     def open(self):
         if not self.tab.finish_form():
             return
+        self.tab.ink.deactivate()
         self.tab.inline_text.deactivate()
         if not self.isVisible():
             self.revision = self.tab.editor.path
