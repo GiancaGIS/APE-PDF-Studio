@@ -98,8 +98,8 @@ def main():
     if args.output:
         args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(content,encoding='utf-8')
     else:print(content)
-    if args.release and (Version(result['pypdf'])<Version('6.20.1') or Version(result['MuPDF'])<Version('1.28.5')):
-        raise SystemExit('Release blocked: pypdf >=6.20.1 and native MuPDF >=1.28.5 are required.')
+    if args.release and (Version(result['pypdf'])<Version('6.21.1') or Version(result['MuPDF'])<Version('1.28.5')):
+        raise SystemExit('Release blocked: pypdf >=6.21.1 and native MuPDF >=1.28.5 are required.')
     if errors:
         for repo,error in errors.items():print(f"{repo}: {error['message']}",file=sys.stderr)
         raise SystemExit('Upstream advisory check incomplete; see the security inventory report.')

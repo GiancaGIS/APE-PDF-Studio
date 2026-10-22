@@ -50,7 +50,20 @@ jobs:
           python -m pip install pip-audit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .venv-build/Scripts/python -c "from pathlib import Path; Path('build').mkdir(exist_ok=True); Path('build/audit-requirements.txt').write_text(Path('requirements-release.txt').read_text().replace('pymupdf==1.28.2.post1285','pymupdf==1.28.2'))"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pip_audit -r build/audit-requirements.txt --no-deps --disable-pip -f json -o build/pip-audit.json
+          $dependencyAuditExit = $LASTEXITCODE
+          if (Test-Path -LiteralPath build/pip-audit.json) {
+            $dependencyAuditReport = Get-Content -LiteralPath build/pip-audit.json -Raw | ConvertFrom-Json
+            foreach ($dependency in $dependencyAuditReport.dependencies) {
+              foreach ($vulnerability in $dependency.vulns) {
+                $fixedVersions = $vulnerability.fix_versions -join ', '
+                if (-not $fixedVersions) { $fixedVersions = 'no fixed version reported' }
+                Write-Host "$($dependency.name) $($dependency.version): $($vulnerability.id) | fix: $fixedVersions"
+              }
+            }
+          }
+          exit $dependencyAuditExit
       - name: Native inventory and official advisories
         if: always()
         env:

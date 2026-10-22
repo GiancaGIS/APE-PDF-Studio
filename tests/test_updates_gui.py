@@ -104,7 +104,7 @@ def test_success_accumulates_chunks_and_only_user_opens_browser(dialog, monkeypa
 
 
 @pytest.mark.parametrize("status,data,error,expected", [
-    (200, release("v1.1.2"), QNetworkReply.NetworkError.NoError, "aggiornata"),
+    (200, release("v1.1.3"), QNetworkReply.NetworkError.NoError, "aggiornata"),
     (404, b"{}", QNetworkReply.NetworkError.ContentNotFoundError, "Nessuna release"),
     (403, b"{}", QNetworkReply.NetworkError.ContentAccessDenied, "limitato"),
     (429, b"{}", QNetworkReply.NetworkError.UnknownContentError, "limitato"),
