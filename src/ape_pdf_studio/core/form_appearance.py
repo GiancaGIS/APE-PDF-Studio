@@ -84,8 +84,8 @@ def display_copy(data, password=None):
         if reader.is_encrypted and not reader.decrypt(password or ""):
             raise ValueError("PDF authentication failed")
         writer = PdfWriter(clone_from=reader)
-        from .pdf_scripts import strip_javascript
-        strip_javascript(writer)
+        from .pdf_scripts import strip_disabled_actions
+        strip_disabled_actions(writer)
         from .pdf_forms import field_chain, field_name, inherited, read_fields, write_values
         regenerate = set()
         form = pdf_get(reader.root_object, "/AcroForm", {})
