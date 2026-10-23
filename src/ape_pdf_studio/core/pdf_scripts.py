@@ -1,11 +1,12 @@
-"""Remove JavaScript from disposable renderer copies, preserving saved revisions."""
+"""Strip scripts and disabled URI actions from disposable render copies."""
 
 
-def strip_javascript(writer):
+def strip_disabled_actions(writer):
     from pypdf.generic import ArrayObject, DictionaryObject, IndirectObject
     from .errors import PDFSecurityError
     from .localization import tr
     from .security import MAX_NODES
+    from .pdf_links import allowed_url
     stack = list(writer._objects)
     seen = set()
     visited = 0
@@ -21,8 +22,11 @@ def strip_javascript(writer):
         seen.add(id(value))
         if isinstance(value, DictionaryObject):
             action = value.get('/S')
-            if action is not None and action.get_object() == '/JavaScript':
-                # Also remove action chains reachable only through a script action.
+            action = action.get_object() if action is not None else None
+            if action == '/JavaScript' or (action == '/URI' and
+                    allowed_url(value['/URI'] if '/URI' in value else None) is None):
+                # No scripts, local/relative files, or unapproved URL protocols
+                # reach PDFium. This also detaches their action chains.
                 value.clear()
             else:
                 value.pop('/JS', None)

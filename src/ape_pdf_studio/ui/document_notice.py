@@ -59,6 +59,8 @@ class DocumentNotice(QFrame):
         if "external_links" in security.findings:
             parts.append(tr("Collegamenti esterni · conferma a ogni apertura") if self.links_enabled else
                          tr("Collegamenti esterni · apertura disabilitata"))
+        if "local_links" in security.findings:
+            parts.append(tr("Collegamenti a file locali o relativi · apertura disabilitata"))
         if self.form_count:
             parts.append(tr("Modulo PDF · {0} campi", self.form_count))
         self.form_button.setVisible(bool(self.form_count))

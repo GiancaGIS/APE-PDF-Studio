@@ -36,10 +36,11 @@ FINDINGS = {
     "unknown_action": "Azioni PDF non supportate dal controllo",
     "attachments": "Allegati incorporati: apertura ed esecuzione disabilitate",
     "external_links": "Collegamenti web/email: disabilitati fino alla conferma dell'utente",
+    "local_links": "Collegamenti a file locali o relativi · apertura disabilitata",
 }
 # JavaScript remains detectable and is never executed: Qt receives scrubbed
 # display copies, while all MuPDF documents use the non-scripting runtime guard.
-BLOCKED = frozenset(FINDINGS) - {"javascript", "attachments", "external_links"}
+BLOCKED = frozenset(FINDINGS) - {"javascript", "attachments", "external_links", "local_links"}
 
 
 @dataclass(frozen=True)
@@ -263,8 +264,16 @@ def inspect_reader(reader) -> tuple[str, ...]:
             if action == "/URI":
                 from urllib.parse import urlsplit
                 uri = scalar_text(value.get("/URI", ""))
-                if urlsplit(uri).scheme.lower() in ("http", "https", "mailto"):
+                try:
+                    scheme = urlsplit(uri).scheme.lower()
+                except ValueError:
+                    scheme = "invalid"
+                if scheme in ("http", "https", "mailto"):
                     found.add("external_links")
+                elif scheme == "file" or not scheme:
+                    # Markdown/browser exports often contain file:// or relative
+                    # links. Reading the page does not authorize opening them.
+                    found.add("local_links")
                 else:
                     found.add("unsafe_uri")
             if (action_context and "/S" in value) or object_type == "/Action":

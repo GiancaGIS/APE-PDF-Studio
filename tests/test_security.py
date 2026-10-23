@@ -82,8 +82,8 @@ def test_dynamic_forms_media_and_xml_entities_are_blocked(tmp_path, feature):
         PDFEditor(write_pdf(tmp_path, change))
 
 
-@pytest.mark.parametrize("uri", ["file:///C:/test.exe", "javascript:alert(1)", "data:text/html,test", "custom-app:run", "../local-file"])
-def test_local_files_and_unapproved_uri_schemes_are_blocked(tmp_path, uri):
+@pytest.mark.parametrize("uri", ["javascript:alert(1)", "data:text/html,test", "custom-app:run", "https://["])
+def test_unapproved_or_malformed_uri_schemes_are_blocked(tmp_path, uri):
     def change(w):
         link = action("/URI")
         link[NameObject("/URI")] = TextStringObject(uri)

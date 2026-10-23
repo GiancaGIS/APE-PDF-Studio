@@ -46,8 +46,8 @@ class PrintSource:
                 else:
                     added.pop("/Annots", None)
             bake_widgets(writer, printing=True)
-            from .pdf_scripts import strip_javascript
-            strip_javascript(writer)
+            from .pdf_scripts import strip_disabled_actions
+            strip_disabled_actions(writer)
             writer.write(destination)
         propagate_zone(destination, self.original)
         self._copies[comments] = destination

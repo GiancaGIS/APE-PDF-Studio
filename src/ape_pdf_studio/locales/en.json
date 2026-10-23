@@ -761,5 +761,6 @@
   "Disegna sulla pagina. Seleziona un tratto per eliminarlo; Ctrl+Z annulla.": "Draw on the page. Select a stroke to delete it; Ctrl+Z undoes.",
   "Alcuni disegni complessi non sono selezionabili.": "Some complex drawings cannot be selected.",
   "Il documento è cambiato. Ripeti l'operazione.": "The document has changed. Repeat the operation.",
-  "Tratto completato. Rilascia il pulsante per iniziarne un altro.": "Stroke completed. Release the button to start another."
+  "Tratto completato. Rilascia il pulsante per iniziarne un altro.": "Stroke completed. Release the button to start another.",
+  "Collegamenti a file locali o relativi · apertura disabilitata": "Local or relative file links · opening disabled"
 }

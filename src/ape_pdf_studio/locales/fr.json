@@ -761,5 +761,6 @@
   "Disegna sulla pagina. Seleziona un tratto per eliminarlo; Ctrl+Z annulla.": "Dessinez sur la page. Sélectionnez un trait pour le supprimer ; Ctrl+Z annule.",
   "Alcuni disegni complessi non sono selezionabili.": "Certains dessins complexes ne peuvent pas être sélectionnés.",
   "Il documento è cambiato. Ripeti l'operazione.": "Le document a changé. Répétez l’opération.",
-  "Tratto completato. Rilascia il pulsante per iniziarne un altro.": "Trait terminé. Relâchez le bouton pour en commencer un autre."
+  "Tratto completato. Rilascia il pulsante per iniziarne un altro.": "Trait terminé. Relâchez le bouton pour en commencer un autre.",
+  "Collegamenti a file locali o relativi · apertura disabilitata": "Liens vers des fichiers locaux ou relatifs · ouverture désactivée"
 }
