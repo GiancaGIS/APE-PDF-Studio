@@ -325,7 +325,7 @@ Vector rendering retains up to three validated drawing lists, limited to 12 MiB 
 
 **On Windows, PDF processing uses AppContainer.** Rendering, search, editing, forms, printing preparation and conversions run in workers without network capabilities or child processes, with access to their own private workspace and approved code. The GUI receives validated pixels, drawing commands and typed data. Explorer's adapter acts as a medium-integrity broker for its AppContainer child; low-integrity hosts that cannot create the sandbox fail closed. This changes APE's preview-host registration and requires the updated installer.
 
-This is not antivirus software or a guarantee against unknown exploits. Memory limits apply per worker; disk quotas are preventive/periodic checks. Private session cleanup and Windows Internet-zone propagation protect temporary and derived files. The build includes pypdf 6.21.1 (fixing [CVE-2026-113786](https://github.com/py-pdf/pypdf/security/advisories/GHSA-5hx5-vpf9-5wcv)) and native MuPDF 1.28.5. Other platforms do not receive the Windows OS sandbox. See [security architecture, dependency recipe, test limits and signing procedure](docs/security-hardening.md). Signed releases require a code-signing certificate; development builds remain unsigned.
+This is not antivirus software or a guarantee against unknown exploits. Memory limits apply per worker; disk quotas are preventive/periodic checks. Private session cleanup and Windows Internet-zone propagation protect temporary and derived files. The build includes pypdf 6.21.2 (fixing [CVE-2026-113786](https://github.com/py-pdf/pypdf/security/advisories/GHSA-5hx5-vpf9-5wcv)) and native MuPDF 1.28.5. Other platforms do not receive the Windows OS sandbox. See [security architecture, dependency recipe, test limits and signing procedure](docs/security-hardening.md). Signed releases require a code-signing certificate; development builds remain unsigned.
 
 ## Keyboard shortcuts
 
@@ -378,7 +378,7 @@ The suite covers the PDF engine, CLI, and real Qt interactions: search, mouse/ke
 
 Document tests cover PDF/A metadata and signature structures, Info/XMP synchronization with preservation of translations/attachments/bookmarks, saving, undo/redo, closing, PNG/JPEG export, and DOCX conversion with scans, blank pages, and cancellation. Signature fixtures are synthetic detection structures without cryptographic validity. GUI tests require PySide6 and use Qt's `offscreen` platform and isolated preferences.
 
-This version has been checked on **Windows with Python 3.14, PySide6 6.12.0, pypdf 6.21.1, and pdf2docx 0.5.13**. Automated visual checks do not replace testing on your own display and documents.
+This version has been checked on **Windows with Python 3.14, PySide6 6.12.0, pypdf 6.21.2, and pdf2docx 0.5.13**. Automated visual checks do not replace testing on your own display and documents.
 
 OCR tests include real bilingual scans, visual and structural preservation, rotations/crops/UserUnit, Qt search and clipboard, saving and undo/redo, worker cancellation, and download verification. Set `TESSDATA_PREFIX` to Italian and English models or place them in `.dev-deps/tessdata/` to enable actual recognition tests. Those tests are skipped if the models are missing and never download models from the network.
 

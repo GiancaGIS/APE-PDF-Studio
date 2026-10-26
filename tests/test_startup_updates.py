@@ -57,7 +57,7 @@ def test_startup_is_deferred_once_and_toast_requires_browser_click(window, monke
 
 
 @pytest.mark.parametrize("status,body,error", [
-    (200, release("v1.1.4"), QNetworkReply.NetworkError.NoError),
+    (200, release("v1.1.5"), QNetworkReply.NetworkError.NoError),
     (200, release("v1.0.0"), QNetworkReply.NetworkError.NoError),
     (404, b"{}", QNetworkReply.NetworkError.ContentNotFoundError),
     (403, b"{}", QNetworkReply.NetworkError.ContentAccessDenied),
