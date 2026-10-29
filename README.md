@@ -92,6 +92,8 @@ Alternatively, create a virtual environment, install with `python -m pip install
 
 Text selection works on one page at a time; search covers the whole document. Scanned pages without a text layer need [OCR](#ocr) before their words can be searched or selected.
 
+Opening PDFs from File Explorer, **Open with**, or command-line file arguments reuses the application's existing window for the current user/session. Each new document opens in a tab; reopening the same file selects its existing tab and retains unsaved edits. Launching the app without a file brings the existing window forward. Requests received during document loading or a modal dialog wait their turn, and opening several files together does not create additional application windows. The local channel accepts only bounded lists of absolute PDF paths; documents still pass through the usual security checks and sandbox. The CLI and private PDF workers remain separate processes.
+
 ## Appearance and language
 
 The interface starts in **Italian**. To switch to English on first launch, open **Impostazioni → Aspetto e lingua…**, choose **English**, and click **Applica** or **OK**. Restart the program to apply the language.

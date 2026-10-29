@@ -3,20 +3,19 @@ from __future__ import annotations
 
 import logging
 import sys
-from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from .ui.main_window import MainWindow
 from .ui.theme import apply_theme
 from .ui.icons import application_icon
+from .ui.single_instance import SingleInstance, InstanceError, pdf_arguments
+from .core.localization import tr
 from . import __version__
 
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    from .core.private_work import cleanup_stale
-    cleanup_stale()
     if sys.platform == "win32":
         # Match installed shortcuts and distinguish the app from its Python host.
         import ctypes
@@ -31,13 +30,29 @@ def main() -> int:
     app.setApplicationName("APE PDF Studio")
     app.setOrganizationName("GiancaGIS")
     app.setApplicationVersion(__version__)
-    app.setWindowIcon(application_icon())
-    apply_theme(app)
-    window = MainWindow()
-    window.show()
-    window.schedule_update_check()
-    for argument in sys.argv[1:]:
-        candidate = Path(argument)
-        if candidate.is_file() and candidate.suffix.lower() == ".pdf":
-            window.open_pdf(candidate)
-    return app.exec()
+    instance = None
+    try:
+        paths = pdf_arguments(sys.argv[1:])
+        instance = SingleInstance(app)
+        if not instance.start(paths):
+            return 0
+        app.aboutToQuit.connect(instance.close)
+        from .core.private_work import cleanup_stale
+        cleanup_stale()
+        app.setWindowIcon(application_icon())
+        apply_theme(app)
+        window = MainWindow()
+        instance.attach(window)
+        window.show()
+        window.schedule_update_check()
+        instance.open_initial(paths)
+        return app.exec()
+    except (InstanceError, OSError) as exc:
+        logging.error('Application instance startup failed: %s', exc)
+        QMessageBox.critical(None, tr('Apertura PDF'), tr(
+            "Impossibile avviare o contattare l'applicazione. Attendi qualche secondo e riprova."))
+        return 1
+    finally:
+        if instance is not None:
+            instance.close()
+            instance.deleteLater()

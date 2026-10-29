@@ -11,6 +11,15 @@ from ape_pdf_studio.ui.main_window import MainWindow
 from ape_pdf_studio.ui.ocr import default_ocr_cache
 
 
+@pytest.fixture(autouse=True)
+def isolate_entrypoint_instance(monkeypatch, tmp_path):
+    # Entry-point tests must never forward fixtures to the user's running app.
+    import ape_pdf_studio.app as entrypoint
+    from ape_pdf_studio.ui.single_instance import SingleInstance
+    monkeypatch.setattr(entrypoint, 'SingleInstance',
+                        lambda parent: SingleInstance(parent, directory=tmp_path/'instance'))
+
+
 @pytest.mark.parametrize("language", ("it", "en", "es", "fr"))
 def test_product_rename_with_legacy_preferences(app, preferences, text_pdf, monkeypatch, language):
     # These are the preferences written by the former APEX installation.

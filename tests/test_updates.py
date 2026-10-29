@@ -11,9 +11,9 @@ def body(tag="v1.2.0", **values):
 
 
 @pytest.mark.parametrize("tag,current,available", [
-    ("v1.2.0", "1.1.5", True), ("1.10.0", "1.9.0", True),
-    ("v2.0.0", "1.99.99", True), ("1.1.5", "1.1.5", False),
-    ("1.1.5", "2.0.0", False), ("v1.1.5+build.2", "1.1.5+build.1", False),
+    ("v1.2.0", "1.1.6", True), ("1.10.0", "1.9.0", True),
+    ("v2.0.0", "1.99.99", True), ("1.1.6", "1.1.6", False),
+    ("1.1.6", "2.0.0", False), ("v1.1.6+build.2", "1.1.6+build.1", False),
 ])
 def test_versions_use_numeric_precedence(tag, current, available):
     release = parse_release(200, body(tag), current)

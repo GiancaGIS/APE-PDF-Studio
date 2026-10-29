@@ -71,6 +71,7 @@ class MainWindow(QMainWindow):
         self._ocr_job = None
         self._ocr_tab = None
         self._page_context = None
+        self.close_guard = None
 
         self.tabs = DocumentTabs()
         self.tabs.currentChanged.connect(self._update_state)
@@ -780,6 +781,9 @@ class MainWindow(QMainWindow):
             if not self._confirm_close(tab):
                 event.ignore()
                 return
+        if self.close_guard is not None and not self.close_guard():
+            event.ignore()
+            return
         self.settings.setValue("window/geometry", self.saveGeometry())
         self.settings.sync()
         self._startup_timer.stop()
