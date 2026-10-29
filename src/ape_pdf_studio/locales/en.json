@@ -762,5 +762,6 @@
   "Alcuni disegni complessi non sono selezionabili.": "Some complex drawings cannot be selected.",
   "Il documento è cambiato. Ripeti l'operazione.": "The document has changed. Repeat the operation.",
   "Tratto completato. Rilascia il pulsante per iniziarne un altro.": "Stroke completed. Release the button to start another.",
-  "Collegamenti a file locali o relativi · apertura disabilitata": "Local or relative file links · opening disabled"
+  "Collegamenti a file locali o relativi · apertura disabilitata": "Local or relative file links · opening disabled",
+  "Impossibile avviare o contattare l'applicazione. Attendi qualche secondo e riprova.": "Cannot start or contact the application. Wait a few seconds and try again."
 }
