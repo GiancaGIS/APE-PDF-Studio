@@ -4,6 +4,7 @@ import os
 import sys
 
 from .errors import PDFSecurityError
+from .localization import tr
 
 
 def in_appcontainer():
@@ -38,6 +39,13 @@ def wrap_command(command, work, *, timeout=12000, output_limit=4*1024*1024):
         # reported as lacking an OS sandbox. Never advertise Windows protections.
         return raw
     if getattr(sys,'frozen',False):
+        verify = getattr(sys, '_ape_verify_native', None)
+        if verify is None:
+            raise PDFSecurityError(tr('Verifica di integrità del pacchetto non disponibile.'))
+        try:
+            verify()
+        except Exception as exc:
+            raise PDFSecurityError(tr('File della sandbox alterati: reinstalla o ricompila il programma.')) from exc
         folder=Path(sys.executable).resolve().parent
         host=folder/'APEPDFSandbox.exe'
         code=[Path(raw[0]), folder/'_internal']

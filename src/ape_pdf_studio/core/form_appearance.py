@@ -79,11 +79,20 @@ def bake_widgets(writer, *, printing=False):
     writer.root_object.pop("/AcroForm", None)
 
 
-def display_copy(data, password=None):
+def display_copy(data, password=None, *, omit_editable_ink=False):
     with PdfReader(io.BytesIO(data)) as reader:
         if reader.is_encrypted and not reader.decrypt(password or ""):
             raise ValueError("PDF authentication failed")
         writer = PdfWriter(clone_from=reader)
+        if omit_editable_ink:
+            from .ink import read_ink
+            targets = {}
+            for row in read_ink(reader)['rows']:
+                targets.setdefault(row['page'], set()).add(row['index'])
+            for page, indices in targets.items():
+                annots = writer.pages[page]['/Annots']
+                popups = [annots[i].get_object().get('/Popup') for i in indices]
+                annots[:] = [ref for i, ref in enumerate(annots) if i not in indices and ref not in popups]
         from .pdf_scripts import strip_disabled_actions
         strip_disabled_actions(writer)
         from .pdf_forms import field_chain, field_name, inherited, read_fields, write_values

@@ -15,7 +15,8 @@ def main():
     source = Path(request["path"])
     if source.stat().st_size > MAX_FILE_BYTES:
         raise ValueError("Input too large")
-    return detect_fields(source, request["pages"], cache_dir=request.get("cache_dir"), use_ocr=request.get("use_ocr", True))
+    return detect_fields(source, request["pages"], cache_dir=request.get("cache_dir"),
+                         use_ocr=request.get("use_ocr", True), language=request.get("language", "ita+eng"))
 
 
 if __name__ == "__main__":

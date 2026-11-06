@@ -46,7 +46,7 @@ def test_pen_motion_uses_no_synchronous_rpc_and_local_undo_delete(window, monkey
     assert window.a_redo.isEnabled()
     window.a_redo.trigger()
     assert len(tab.ink.pending) == 1
-    tab.ink.mode.setCurrentIndex(1)
+    tab.ink.set_tool('select')
     point = tab.viewer.page_transform(0).map(QPointF(80, 160)).toPoint()
     QTest.mouseClick(tab.viewer.viewport(), Qt.MouseButton.LeftButton, pos=point)
     assert tab.ink.selected is tab.ink.pending[0]
@@ -79,16 +79,16 @@ def test_save_reopen_select_and_delete_persisted_ink(window, tmp_path, monkeypat
     reopened = window.current
     assert reopened is not tab
     reopened.ink.activate()
-    reopened.ink.mode.setCurrentIndex(1)
+    reopened.ink.set_tool('select')
     QTest.qWait(30)
     point = reopened.viewer.page_transform(0).map(QPointF(80, 160)).toPoint()
     QTest.mouseClick(reopened.viewer.viewport(), Qt.MouseButton.LeftButton, pos=point)
     assert reopened.ink.selected is not None
     QTest.keyClick(reopened.viewer, Qt.Key.Key_Delete)
-    assert not reopened.editor.ink()['rows']
+    assert not reopened.ink.visible_records() and reopened.ink.edits
     assert reopened.dirty
     window.a_undo.trigger()
-    assert len(reopened.editor.ink()['rows']) == 1
+    assert len(reopened.ink.visible_records()) == 1
     assert reopened.ink.deactivate()
     assert not window.a_draw.isChecked()
 

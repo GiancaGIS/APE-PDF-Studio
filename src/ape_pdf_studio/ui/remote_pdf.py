@@ -97,11 +97,11 @@ class RemoteDocument(QObject):
         self.source=None;self.sizes=[];self.bookmarks=[]
         self._status=self.Status.Null
         self.statusChanged.emit(self._status)
-    def render(self,page,size,options=None):
+    def render(self,page,size,options=None,*,hide_ink=False):
         width,height=size.width(),size.height()
         if not 0<=page<self.pageCount() or not 0<width<=40000 or not 0<height<=40000 or width*height>40000000:
             raise PDFOperationError('Richiesta immagine fuori limite.')
-        description={}
+        description={'hide_ink':True} if hide_ink else {}
         if options:
             scaled=options.scaledSize();clip=options.scaledClipRect()
             if scaled.isValid():description['scaled']=[scaled.width(),scaled.height()]
@@ -131,16 +131,16 @@ class RemoteRenderer(QObject):
     RenderMode=QPdfPageRenderer.RenderMode
     pageRendered=Signal(int,QSize,QImage,object,int)
     def __init__(self,parent=None):
-        super().__init__(parent);self.document=None;self.sequence=0;self.epoch=0
+        super().__init__(parent);self.document=None;self.sequence=0;self.epoch=0;self.hide_ink=False
     def setRenderMode(self,*_):pass
     def setDocument(self,document):self.document=document;self.epoch+=1
     def requestPage(self,page,size,options=None):
         if self.document is None or self.document.status()!=QPdfDocument.Status.Ready:return 0
         self.sequence+=1
-        request=self.sequence;document=self.document;epoch=self.epoch
+        request=self.sequence;document=self.document;epoch=self.epoch;hide_ink=self.hide_ink
         def run():
             try:
-                image=document.render(page,size,options)
+                image=document.render(page,size,options,hide_ink=True) if hide_ink else document.render(page,size,options)
             except Exception:
                 import logging
                 logging.getLogger(__name__).exception('Isolated rendering failed')

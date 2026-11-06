@@ -25,6 +25,11 @@ def application_icon():
 
 
 PATHS = {
+    'pencil': [[(4,20),(6,14),(17,3),(21,7),(10,18),(4,20)],[(6,14),(10,18)],[(14,6),(18,10)]],
+    'eraser': [[(3,14),(13,3),(22,11),(12,22),(9,22),(3,17),(3,14)],[(8,9),(17,17)],[(12,22),(22,22)]],
+    'select_ink': [[(5,3),(5,20),(10,16),(14,23),(17,21),(13,14),(20,14),(5,3)]],
+    'style': [[(3,17),(6,13),(10,18),(14,10),(17,14),(21,7)],[(3,22),(21,22)]],
+    'signature': [[(3,17),(6,12),(7,6),(6,4),(4,7),(4,12),(8,17),(11,13),(11,17),(14,14),(16,17),(21,15)],[(3,21),(21,21)]],
     'draw': [[(3,21),(5,14),(17,2),(22,7),(10,19),(3,21)],[(14,5),(19,10)],[(3,23),(9,22),(15,23),(21,20)]],
     'watermark': [[(3,3),(21,3),(21,21),(3,21),(3,3)],[(5,16),(10,7),(13,16),(18,7)]],
     'edit_text': [[(4,5),(18,5)],[(11,5),(11,19)],[(7,19),(15,19)],[(18,11),(21,14),(15,20),(12,21),(13,18),(18,11)]],
@@ -84,6 +89,25 @@ def pen_cursor(color, device_pixel_ratio=1.0):
     painter.drawLine(QPointF(20, 6), QPointF(26, 12))
     painter.end()
     return QCursor(pixmap, 4, 28)
+
+
+def eraser_cursor(device_pixel_ratio=1.0):
+    pixmap = QPixmap(round(32 * device_pixel_ratio), round(32 * device_pixel_ratio))
+    pixmap.setDevicePixelRatio(device_pixel_ratio)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    path = QPainterPath(QPointF(4, 22))
+    for point in ((18, 7), (29, 17), (16, 29), (12, 29), (4, 22)):
+        path.lineTo(*point)
+    painter.setPen(QPen(QColor('white'), 3.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    painter.setBrush(QColor('#f4b6c9'))
+    painter.drawPath(path)
+    painter.setPen(QPen(QColor('#283446'), 1.3))
+    painter.drawPath(path)
+    painter.drawLine(QPointF(11, 14), QPointF(23, 24))
+    painter.end()
+    return QCursor(pixmap, 4, 22)
 
 
 def icon(name, color=None):

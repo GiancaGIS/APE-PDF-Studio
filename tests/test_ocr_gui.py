@@ -1,9 +1,10 @@
 """Verify Qt search/selection after OCR and real subprocess cancellation."""
 from PySide6.QtCore import QProcess
 from PySide6.QtWidgets import QMessageBox
+import pytest
 
 from test_gui import app, text_pdf, window, wait_for
-from test_ocr import scan_pdf, tessdata
+from test_ocr import scan_pdf, tessdata, localized_scan
 from ape_pdf_studio.ui.ocr import OcrDialog, OcrJob
 
 
@@ -12,6 +13,8 @@ def test_ocr_dialog_validates_ranges(app, monkeypatch):
     monkeypatch.setattr(QMessageBox, "warning", lambda *args: errors.append(args[2]))
     dialog = OcrDialog(1, 4)
     assert dialog.language.currentData() == "ita+eng"
+    assert {dialog.language.itemData(i) for i in range(dialog.language.count())} == {
+        "ita+eng", "ita", "eng", "spa", "fra", "spa+eng", "fra+eng"}
     dialog.scope.setCurrentIndex(2)
     dialog.range.setText("5")
     dialog.accept()
@@ -20,6 +23,29 @@ def test_ocr_dialog_validates_ranges(app, monkeypatch):
     dialog.accept()
     assert dialog.pages == [0, 2, 3] and dialog.result()
     dialog.deleteLater()
+
+
+@pytest.mark.parametrize("language", ("spa", "fra"))
+def test_isolated_job_recognizes_new_languages(app, localized_scan, language, tmp_path):
+    from pypdf import PdfReader
+    source, models, expected = localized_scan
+    original = source.read_bytes()
+    job = OcrJob(source, language=language, cache_dir=models, download=False)
+    results, errors, done = [], [], []
+    def completed(path, _result):
+        with PdfReader(path) as reader:
+            results.append(reader.pages[0].extract_text())
+    job.succeeded.connect(completed)
+    job.failed.connect(errors.append)
+    job.finished.connect(lambda: done.append(True))
+    job.start()
+    wait_for(lambda: done, timeout=30000)
+    assert not errors, errors
+    # Invisible glyph positions can give pypdf different word spacing.
+    assert results and "".join(expected.split()) in "".join(results[0].split())
+    assert source.read_bytes() == original
+    assert not job.snapshot.parent.exists()
+    job.deleteLater()
 
 
 def test_gui_ocr_search_selection_save_undo_and_redo(app, window, scan_pdf, tessdata, tmp_path, monkeypatch):

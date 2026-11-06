@@ -162,6 +162,43 @@ def test_scan_labels_use_local_rgb_ocr_when_models_available(flat_forms):
     assert 'Nome_e_cognome' in names and 'Accetto_le_condizioni' in names
 
 
+@pytest.mark.parametrize("language,label", (("spa", "Nombre completo"), ("fra", "Adresse complète")))
+def test_scan_label_language_reaches_detection_worker(tmp_path, language, label):
+    import pymupdf
+    from test_ocr import find_tessdata
+    from ape_pdf_studio.core.ocr import stage_tessdata
+    from ape_pdf_studio.core.sandbox import wrap_command
+    models = find_tessdata((language,))
+    source = tmp_path / "form-scan.pdf"
+    with pymupdf.open() as document:
+        page = document.new_page(width=400, height=400)
+        page.insert_text((40, 100), label, fontsize=18)
+        page.draw_rect((40, 115, 350, 150), color=(0, 0, 0))
+        pixels = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
+    with pymupdf.open() as document:
+        page = document.new_page(width=400, height=400)
+        page.insert_image(page.rect, pixmap=pixels)
+        document.save(source)
+    original = source.read_bytes()
+    stage_tessdata(language, models, tmp_path / "tessdata", download=False)
+    command = wrap_command(worker_command("form_detect"), tmp_path, timeout=30000)
+    response = subprocess.run(command, input=json.dumps(dict(path=str(source), pages=[0],
+        language=language, use_ocr=True, cache_dir=str(tmp_path / "tessdata"))).encode(),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=35,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    assert response.returncode == 0, response.stderr
+    result = json.loads(response.stdout)
+    assert not result["warnings"]
+    assert label in {proposal["label"] for proposal in result["proposals"]}
+    assert source.read_bytes() == original
+
+
+@pytest.mark.parametrize("language", ("deu", "../fra", "fra+deu", None, ["fra"]))
+def test_invalid_label_language_rejected_before_pdf_access(tmp_path, language):
+    with pytest.raises(ValueError, match="Invalid OCR language"):
+        detect_fields(tmp_path / "missing.pdf", [0], language=language)
+
+
 def test_hidden_field_names_cannot_be_overwritten(flat_forms,tmp_path):
     writer=PdfWriter(clone_from=flat_forms[0])
     hidden=writer._add_object(DictionaryObject({NameObject('/FT'):NameObject('/Tx'),

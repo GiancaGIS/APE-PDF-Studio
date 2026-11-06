@@ -12,7 +12,7 @@
   </p>
 </div>
 
-![APE PDF Studio: Read. Edit. Make it searchable. Local processing, four interface languages, and Italian + English OCR.](docs/assets/readme-hero.svg)
+![APE PDF Studio: Read. Edit. Make it searchable. Local processing, four interface and OCR languages.](docs/assets/readme-hero.svg)
 
 <p align="center">
   <strong>Windows desktop</strong> &nbsp; / &nbsp;
@@ -30,7 +30,7 @@
 | **Reading** | Open multiple PDFs in tabs, navigate with thumbnails and bookmarks, search the whole document, and select or copy text. |
 | **Editing** | Rotate, reorder, insert, delete, and extract pages; split PDFs by page, every N pages, or custom ranges; add notes, highlights, and underlines; replace supported existing text spans. |
 | **PDF forms** | Fill static AcroForm text, checkboxes, radio groups and choices; save editable fields and undo or redo changes. |
-| **Searchable scans** | Recognize Italian, English, or both with local OCR and an invisible text layer. |
+| **Searchable scans** | Recognize Italian, English, Spanish or French with local OCR and an invisible text layer. |
 | **Exporting** | Save pages as PNG/JPEG or convert the complete PDF to an editable Word document. |
 | **Printing** | Preview paper size, scaling, margins, copies, and duplex options, or create a print-ready PDF copy. |
 | **Making it yours** | Choose a color theme and an Italian, Spanish, English, or French interface. |
@@ -38,13 +38,22 @@
 APE PDF Studio uses **PySide6** for the interface, **MuPDF / Qt SVG** for vector rendering, **QtPdf** for search, selection, and compatibility rendering, and **pypdf** for document edits, revisions, and saving.
 
 
-![main window](images/main_window.png)
+![APE PDF Studio with three PDF tabs, page thumbnails and the current editing toolbar](images/main_window.png)
 
-![main tools](images/main_tools.png)
+![APE PDF Studio with three PDF tabs, page thumbnails and the current editing toolbar](images/main_window_2.png)
 
-![menu 1](images/menu_1.png)
+<details>
+<summary>Toolbar and menus</summary>
 
-![menu 2](images/menu_2.png)
+The toolbar groups text editing, freehand drawing, annotations and page operations.
+
+![Current toolbar and document tabs](images/main_tools.png)
+
+| Annotate: signatures, drawings, forms and OCR | Pages: insert, reorder, watermark and split |
+| --- | --- |
+| ![Annotate menu including Add signature from image](images/menu_1.png) | ![Pages menu including blank pages, watermark and Split PDF](images/menu_2.png) |
+
+</details>
 
 ## Quick start
 
@@ -100,7 +109,7 @@ The interface starts in **Italian**. To switch to English on first launch, open 
 
 With English selected, use **Settings → Appearance and language…** or **Ctrl+,** to choose **Italiano**, **Español**, **English**, or **Français**. The preference is saved for the current user and takes effect at the next start. **Cancel** discards a selection that has not been applied.
 
-Menus, dialogs, messages, and progress text follow the selected language. PDF text, notes, and metadata keep their contents. Interface language is independent of OCR recognition language, which supports Italian and English. The translations are included in the application and installer and work offline.
+Menus, dialogs, messages, and progress text follow the selected language. PDF text, notes, and metadata keep their contents. Interface and OCR support the same four languages: Italian, English, Spanish and French. OCR recognition language is selected independently of the interface language. The translations are included in the application and installer and work offline.
 
 Color themes apply immediately. Choose blue, teal, sage green, graphite gray, or violet; preview a theme before applying it, or reset to the default blue.
 
@@ -175,7 +184,7 @@ Open a scanned PDF and choose **Edit → Recognize text (OCR)…** or **Annotate
 
 | Option | Choices |
 | --- | --- |
-| **Recognition language** | Italian, English, or Italian and English (default) |
+| **Recognition language** | Italian, English, Spanish or French; Italian and English (default), Spanish and English, or French and English |
 | **Pages** | All pages, current page, or a range such as `1,3-5` |
 | **Resolution** | 300 dpi for quality; 150 dpi for speed |
 
@@ -183,9 +192,9 @@ OCR adds an **invisible, searchable, selectable, and copyable text layer**. It k
 
 Recognition runs locally with PyMuPDF's integrated OCR engine. On first use, **Download missing language data on first use** downloads up to **7 MB** of models from the official [Tesseract tessdata_fast project](https://github.com/tesseract-ocr/tessdata_fast/tree/4.1.0), verifies their SHA-256 hashes, and stores them in the application data folder. Only models are downloaded; your PDF is not uploaded. OCR works offline after that download. The models are distributed under Apache-2.0.
 
-On Windows, downloaded models are stored in `%LOCALAPPDATA%\GiancaGIS\APE PDF Studio\ocr\tessdata`: `ita.traineddata` for Italian and `eng.traineddata` for English.
+On Windows, downloaded models are stored in `%LOCALAPPDATA%\GiancaGIS\APE PDF Studio\ocr\tessdata`: `ita.traineddata` for Italian, `eng.traineddata` for English, `spa.traineddata` for Spanish and `fra.traineddata` for French. Only models required by the selected OCR language are downloaded; the initial download is at most 7 MB per selection.
 
-To use existing models, set `TESSDATA_PREFIX` to a folder containing `ita.traineddata` and/or `eng.traineddata` before starting the app. Standard Tesseract folders on Windows, macOS, and Linux are also checked. If models are missing and downloads are disabled, the app reports an error and leaves the document unchanged. No additional Python dependency is needed: [PyMuPDF includes integrated OCR support](https://pymupdf.readthedocs.io/en/latest/installation.html#enabling-integrated-ocr-support).
+To use existing models, set `TESSDATA_PREFIX` to a folder containing the `.traineddata` files for the selected languages before starting the app. Standard Tesseract folders on Windows, macOS, and Linux are also checked. If models are missing and downloads are disabled, the app reports an error and leaves the document unchanged. No additional Python dependency is needed: [PyMuPDF includes integrated OCR support](https://pymupdf.readthedocs.io/en/latest/installation.html#enabling-integrated-ocr-support).
 
 The worker provides progress and **Cancel**, a memory limit where supported, a three-minute limit per page, and working images of up to 16 megapixels. Resolution is reduced for large pages and reported afterward. Complete or cancel OCR before closing the affected tab or the application.
 
@@ -232,11 +241,23 @@ The original stays unchanged while you edit. Private copies and revisions live i
 
 **Add watermark** under **Pages**, **Annotate** or **Edit** adds centered text to every page, including scanned pages. Choose text, color, size, opacity and rotation; long text scales to fit. The preview is illustrative. The watermark becomes static page content and can be undone during the editing session. PDF processing and validation run in the sandbox while the interface remains responsive.
 
-**Draw** activates a pen directly on the page. Choose color, thickness in points and opacity from its toolbar. Strokes appear immediately as smooth vectors; pointer motion does not wait for PDF operations. Undo/redo works on individual draft strokes. **Select drawings** and **Delete drawing** (or the Delete key) remove a stroke. **Done**, saving, or another document edit commits the drafts as standard, printable PDF Ink annotations. Saved strokes remain selectable and removable after reopening, including Ink annotations from other viewers. Existing flattened drawings and scanned handwriting are page content and cannot be selected as Ink. Encrypted documents remain read-only. Selection of unusually complex annotations is bounded (2000 annotations / 20000 points per revision); a notice reports when some drawings cannot be selected. They remain rendered and preserved. Each gesture accepts up to 8000 sampled points, and draft batches are bounded; revision history supports undo after commit.
+**Draw** opens a secondary toolbar with **Pen**, **Pencil**, **Highlighter**, **Eraser** and **Select drawings**. Each brush remembers its own color, thickness and opacity for that tab. Open its dropdown or **Style** for a 30-color palette, custom colors, a live stroke preview and thickness/opacity sliders. Pencil starts thin and translucent; highlighter starts wide and translucent. The eraser has an adjustable diameter in points and a visible footprint on the page.
+
+Drawing and **partial erasing happen locally in real time**, without synchronous PDF-worker calls during pointer gestures. The eraser cuts only the crossed sections of editable Ink, including between sampled points and across fast pointer movements; surviving fragments keep their appearance. Text, images, page backgrounds, notes and form widgets stay intact. **Ctrl+Z / Ctrl+Y** undo/redo one draft gesture; **Esc** cancels an unfinished gesture. **Select drawings** and **Delete drawing** (or Delete) remain available for removing a whole annotation.
+
+**Done**, saving, or another document edit commits the draft changes atomically as standard, printable PDF Ink annotations. Saving/closing handles pending edits; a failed commit keeps them available. Saved strokes remain editable after reopening, including supported Ink annotations from other viewers. Partial edits preserve the original annotation's identity, title and comment. Existing flattened drawings and scanned handwriting are page content and cannot be erased as Ink. Encrypted documents remain read-only. Editing of unusually complex annotations is bounded (2000 annotations / 20000 points per revision); a notice reports when some drawings cannot be edited. They remain rendered and preserved. Pen gestures accept up to 8000 sampled points, draft batches and retained undo geometry are bounded, and revision history supports undo after commit.
+
+**Annotate → Add signature from image…** imports a PNG or JPEG signature and previews it directly on the page. Drag to position it, use its bottom-right handle to resize proportionally, or set the width in millimeters. Click another page to place it there. **Insert signature**, Enter, saving, or switching to another editing tool commits the image as static, printable page content; Escape or **Cancel** discards the draft. Undo/redo applies to committed insertions during the current editing session. The saved image is embedded in the PDF, without a removable signature annotation or a dependency on the original image file. This is a visual signature, not a cryptographic digital signature or certificate. Transparent PNG backgrounds are preserved; JPEG backgrounds remain opaque. Existing forms, annotations, text, bookmarks and metadata are retained. Signature/PDF-A warnings and the read-only policy for encrypted PDFs still apply.
+
+Signature images are copied privately and decoded only in the PDF sandbox, with a 16 MiB input limit, 16 megapixels and a maximum source side of 8192 pixels. Extremely narrow images (aspect ratio over 100:1) are rejected. The embedded raster is reduced to at most 2048 pixels per side. The GUI receives a bounded raw-pixel preview, without decoding the original image. Original images and PDFs are unchanged until an explicit PDF save, and signature assets are removed from the private workspace when applied or cancelled.
+
+![A synthetic image signature positioned on the PDF page, with a resize handle, width control and Insert signature button](images/image_signature.png)
 
 **Edit text** activates direct editing on the PDF page. **Paragraph reflow** is enabled by default: click a recognized text box and edit multiple lines in place. Words wrap using PDF font metrics within the original column width, and the paragraph can grow into free space below. The editor supports explicit line breaks, first-line/continuation indents, left/center/right/justified alignment and retained inline font, size and RGB style runs. New text inherits a nearby source style; unavailable fonts use a compatible fallback. Enter inserts a line break; Ctrl+Enter applies. Escape discards a draft, and a second Escape exits the mode. Ctrl+S commits a valid draft before saving. Disable reflow for the previous single-span workflow, where Enter applies.
 
 Paragraph recognition is geometric and conservative: native text blocks, different columns, large gaps, headings and list items remain separate. Growth stops before other text, graphics, widgets, containing backgrounds or the page boundary. Overflow keeps the draft open and leaves the PDF revision unchanged; it never silently shrinks, clips or spills text onto another page. Editing supports horizontal text and simple writing systems, up to 16000 characters and 32 font/style combinations per paragraph. The editing field uses locally available screen fonts; the PDF's fonts and the worker's metrics determine the saved layout. Fields follow zoom and scrolling, drafts stay with their tab, and applied edits support undo/redo. Parsing, layout and font inspection stay in the sandbox; catalog data, other pages, forms, links, metadata and attachments remain preserved. This is paragraph-local reflow, matching the scope [described by Adobe](https://helpx.adobe.com/acrobat/using/edit-text-pdfs1.html), rather than whole-document repagination. Scans require OCR. Try [the paragraph example](examples/riflusso_paragrafi.pdf), generated by `scripts/generate_paragraph_example.py`.
+
+![Editing a paragraph directly on the PDF page with automatic line wrapping and alignment controls](images/paragraph_reflow.png)
 
 Closing an edited document offers **Save**, **Discard**, and **Cancel**. Temporary revisions are not retained after closing. Encrypted PDFs are opened read-only; editing and export are disabled. The app requests a password only when one is required to read the document. PDFs protected only against modification (an owner password with an empty opening/user password) open directly without a password prompt and retain their protection.
 
@@ -260,7 +281,7 @@ After edits, the banner notes that signatures and declarations belong to the ori
 
 ### Prepare a form from a flat PDF
 
-Use **Annotate → Prepare form…** or **Edit → Prepare form…** (**Annota → Prepara modulo…** in Italian). A review panel opens beside the page. Enter the pages to analyze (for example `1,3-5`, at most 50 per operation), then select **Detect fields**. The detector suggests text fields and checkboxes using empty rectangles, underlines and nearby text. Scanned pages also use bounded image analysis. Optional local OCR reads labels with already installed Italian/English models; no document is uploaded and this feature does not download models. Without models, geometric detection still works and fields receive editable generic names.
+Use **Annotate → Prepare form…** or **Edit → Prepare form…** (**Annota → Prepara modulo…** in Italian). A review panel opens beside the page. Enter the pages to analyze (for example `1,3-5`, at most 50 per operation), then select **Detect fields**. The detector suggests text fields and checkboxes using empty rectangles, underlines and nearby text. Scanned pages also use bounded image analysis. Optional local OCR reads labels using the same recognition language choices as document OCR, selected in **Label OCR language**, with already installed models. No document is uploaded and this feature does not download models. Without models, geometric detection still works and fields receive editable generic names.
 
 Suggestions are highlighted directly on the page. Select a box to edit its unique name, label, type, multiline setting and dimensions. Drag a box to move it, or drag its lower-right handle to resize it. Choose **Draw text field** or **Draw checkbox** and drag on the page to add a missed field. Delete a suggestion with the panel button or **Delete** while the page is focused. **Esc** cancels an unfinished drawing. Blank table cells and decorative boxes can be false positives: review every suggestion.
 
@@ -284,6 +305,8 @@ Click a highlighted field and fill it **directly on the PDF page**. Checkboxes a
 
 Leaving a field applies its value to the working copy as one undoable change. Use **Save / Save as** to write the PDF; saving also includes the currently focused field, and fields remain editable in compatible readers. Controls follow zoom, scrolling and viewport size. Invalid values or write failures retain the draft and prevent saving or closing until corrected or cancelled with Esc. **Ctrl+Z / Ctrl+Y** undo and redo applied field values; the original is preserved until you explicitly overwrite it.
 
+![Filling the sample AcroForm directly on the page, with text fields, choices, radio buttons, a checkbox and an active multiline note](images/form_filling.png)
+
 This supports static **AcroForm** fields, with a limit of 500 fields and 32,768 characters per value, subject to each field's own text limit. Field names may be hierarchical; repeated widgets share their value. Required-field flags are retained, and partial forms may still be saved. Read-only fields, signature fields and action buttons cannot be edited. Encrypted PDFs retain the application's existing read-only policy. XFA, JavaScript calculations/validation and automatic submission remain unsupported and subject to the preventive security check. Editing a signed or PDF/A-declared document can invalidate signatures or compliance. Page reconstruction can affect complex form structures; inspect the saved working copy after page edits.
 
 Implementation follows the [pypdf form API](https://pypdf.readthedocs.io/en/stable/user/forms.html), preserving AcroForm structures and generating field appearances with `auto_regenerate=False`.
@@ -304,30 +327,9 @@ Embedded attachments are reported and cannot be opened. HTTP/HTTPS/email links s
 
 Attachments may remain in saved PDFs; they are not stripped or disinfected. Signed, PDF/A-declared, and encrypted documents must also pass the check. Encrypted PDFs are checked after successful authentication, using an empty password when the document permits opening without one.
 
-<details>
-<summary><strong>Input limits and rendering budgets</strong></summary>
-
-| Check | Limit |
-| --- | --- |
-| Input file | 256 MiB |
-| Page count | 3,000 |
-| Page dimensions | Up to 200 inches |
-| PDF objects | 100,000 |
-| Object visits / nesting depth | 2,000,000 / 64 |
-| Security check duration | 12 seconds |
-| Streams and decompression | 32 MiB |
-| XMP input | 1 MB |
-| Each worker memory | 768 MiB; operation blocked if the limit cannot be applied |
-
-The [pypdf configuration limits](https://pypdf.readthedocs.io/en/latest/modules/configuration.html) bound stream decompression and XMP processing. The worker uses a Windows Job Object or `RLIMIT_AS` where supported; **Security** reports whether its memory limit was applied.
-
-Vector rendering retains up to three validated drawing lists, limited to 12 MiB each, with bounded paths, numeric transforms, clips and solid colors. PDF-derived SVG is interpreted only inside the worker. Compatibility rendering uses tiles of up to 1024 × 1024 pixels, a 64 MiB cache, and at most two pending requests. Resolution follows zoom and display pixel ratio; exceptionally large viewports limit the visible raster plan to 12 megapixels.
-
-</details>
-
 **On Windows, PDF processing uses AppContainer.** Rendering, search, editing, forms, printing preparation and conversions run in workers without network capabilities or child processes, with access to their own private workspace and approved code. The GUI receives validated pixels, drawing commands and typed data. Explorer's adapter acts as a medium-integrity broker for its AppContainer child; low-integrity hosts that cannot create the sandbox fail closed. This changes APE's preview-host registration and requires the updated installer.
 
-This is not antivirus software or a guarantee against unknown exploits. Memory limits apply per worker; disk quotas are preventive/periodic checks. Private session cleanup and Windows Internet-zone propagation protect temporary and derived files. The build includes pypdf 6.21.4 (fixing [CVE-2026-113786](https://github.com/py-pdf/pypdf/security/advisories/GHSA-5hx5-vpf9-5wcv)) and native MuPDF 1.28.5. Other platforms do not receive the Windows OS sandbox. See [security architecture, dependency recipe, test limits and signing procedure](docs/security-hardening.md). Signed releases require a code-signing certificate; development builds remain unsigned.
+**This is not antivirus software or a guarantee against unknown exploits.** Memory limits apply per worker; disk quotas are preventive/periodic checks. Private session cleanup and Windows Internet-zone propagation protect temporary and derived files. Other platforms do not receive the Windows OS sandbox. See [security architecture, dependency recipe, test limits and signing procedure](docs/security-hardening.md). Signed releases require a code-signing certificate; development builds remain unsigned.
 
 ## Keyboard shortcuts
 
@@ -371,6 +373,10 @@ The rename preserves saved settings, recent documents, and previously downloaded
 
 ## Development and verification
 
+Windows packages compile all application Python modules into native `.pyd` extensions using Cython and MSVC, then package the GUI, CLI and private worker with PyInstaller. Source development remains editable. The tiny executable entry points and a standalone integrity bootstrap are retained inside the EXEs so that verification runs before importing application extensions.
+
+Each EXE pins the SHA-256 of a manifest covering APE's compiled modules, icons, translations and native sandbox/Explorer helpers. Startup rejects modified, missing or added files in the application namespace. The broker also rechecks its native helpers before launching isolated work. The installer marks APE's modules/resources and manifest read-only to discourage accidental edits; upgrades and uninstall handle those attributes. Third-party libraries remain replaceable under their own licenses, and rebuilding modified application sources produces a new matching manifest. These are damage/basic tamper checks, not encryption, DRM, or protection against an administrator who can replace the EXEs and their embedded verifier. Authenticode signing remains the authenticated release mechanism and requires your own code-signing certificate.
+
 ```powershell
 python -m pip install -e ".[dev]"
 python -m pytest -q
@@ -378,11 +384,17 @@ python -m pytest -q
 
 The suite covers the PDF engine, CLI, and real Qt interactions: search, mouse/keyboard selection, clipboard, context menus, annotations on rotated/cropped pages, long-document thumbnails, and tiled rendering compared with full-page output. It also checks HiDPI and rapid zoom, stale-image removal, wheel zoom, page navigation during updates, themes and persistent preferences, active-content blocking (including encrypted and compressed content), scanner failures, destination protection, and security notices.
 
+To refresh the README screenshots from a prepared Windows development environment, run `./.venv-build/Scripts/python.exe scripts/capture_readme_images.py`. It captures the real English interface with the included sample PDFs, uses temporary settings, and verifies that the samples remain unchanged. PDF contents keep their original language; the pictured signature and entered form data are synthetic.
+
 Document tests cover PDF/A metadata and signature structures, Info/XMP synchronization with preservation of translations/attachments/bookmarks, saving, undo/redo, closing, PNG/JPEG export, and DOCX conversion with scans, blank pages, and cancellation. Signature fixtures are synthetic detection structures without cryptographic validity. GUI tests require PySide6 and use Qt's `offscreen` platform and isolated preferences.
 
 This version has been checked on **Windows with Python 3.14, PySide6 6.12.0, pypdf 6.21.4, and pdf2docx 0.5.13**. Automated visual checks do not replace testing on your own display and documents.
 
-OCR tests include real bilingual scans, visual and structural preservation, rotations/crops/UserUnit, Qt search and clipboard, saving and undo/redo, worker cancellation, and download verification. Set `TESSDATA_PREFIX` to Italian and English models or place them in `.dev-deps/tessdata/` to enable actual recognition tests. Those tests are skipped if the models are missing and never download models from the network.
+OCR tests include real Italian, English, Spanish and French scans, bilingual recognition, visual and structural preservation, rotations/crops/UserUnit, Qt search and clipboard, saving and undo/redo, worker cancellation, and download verification. Set `TESSDATA_PREFIX` to the relevant models or place them in `.dev-deps/tessdata/` to enable actual recognition tests. Those tests are skipped if the required models are missing and never download models from the network.
+
+The [complex Chinese/Japanese sample](examples/complex_cjk.pdf) exercises embedded CJK fonts, mixed layouts, images, transparency, rotated/cropped pages, forms, annotations, layers and Unicode metadata. [Compatibility results and repeatable checks](docs/cjk-compatibility.md) distinguish working reading/search/copy/save from the current CJK appearance-font limitation in Helvetica form fields. Chinese/Japanese OCR models are not currently offered.
+
+The [Windows sandbox boundary suite](docs/security-hardening.md#verifiche-continuative-e-limiti) adds 63 cases with real AppContainer workers, live loopback controls, concurrent document isolation, inherited-handle checks, resource quotas, process termination and hostile artifacts/RPC. CI publishes a dedicated JUnit report. A test-only native probe is built with the sandbox tools and is not shipped with the app.
 
 ### Project layout
 

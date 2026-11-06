@@ -36,9 +36,19 @@ jobs:
           ./scripts/build_windows_sandbox.ps1
           .venv-build/Scripts/python scripts/prepare_sandbox_runtime.py
       - name: Windows isolation probes
-        run: .venv-build/Scripts/python scripts/test_windows_sandbox.py
+        shell: pwsh
+        run: |
+          .venv-build/Scripts/python scripts/test_windows_sandbox.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv-build/Scripts/python -m pytest -q -p no:cacheprovider --basetemp build/pytest-sandbox-boundary --junitxml=build/sandbox-boundary-results.xml tests/test_sandbox_boundary.py tests/test_sandbox_artifacts.py
+      - name: Compile and import application PYDs
+        shell: pwsh
+        run: |
+          .venv-build/Scripts/python scripts/compile_app_modules.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .venv-build/Scripts/python scripts/test_compiled_modules.py
       - name: Regression and hostile protocol cases
-        run: .venv-build/Scripts/python -m pytest -q -p no:cacheprovider --basetemp build/pytest-security --junitxml=build/pytest-results.xml --durations=15
+        run: .venv-build/Scripts/python -m pytest -q -p no:cacheprovider --basetemp build/pytest-security --junitxml=build/pytest-results.xml --durations=15 --ignore=tests/test_sandbox_boundary.py --ignore=tests/test_sandbox_artifacts.py
       - name: Protocol mutation smoke
         run: .venv-build/Scripts/python scripts/fuzz_security_protocol.py --cases 10000
       - name: Native parser mutation smoke in AppContainer
@@ -75,6 +85,7 @@ jobs:
           name: security-reports
           path: |
             build/pytest-results.xml
+            build/sandbox-boundary-results.xml
             build/pip-audit.json
             build/security-inventory.json
             build/windows/native-fuzz.json

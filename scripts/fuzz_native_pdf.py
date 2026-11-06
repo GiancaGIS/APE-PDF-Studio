@@ -17,9 +17,10 @@ def worker():
     result={}
     try:
         import pymupdf
+        from ape_pdf_studio.core.pdf_runtime import open_static_pdf
         pymupdf.TOOLS.mupdf_display_errors(False)
         pymupdf.TOOLS.mupdf_display_warnings(False)
-        with pymupdf.open('input.pdf') as doc:
+        with open_static_pdf('input.pdf') as doc:
             if not 0<len(doc)<=10:raise ValueError('page budget')
             page=doc[0];page.get_pixmap(matrix=pymupdf.Matrix(.2,.2),alpha=False)
             if len(page.get_text())>250000:raise ValueError('text budget')

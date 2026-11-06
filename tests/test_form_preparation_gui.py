@@ -22,6 +22,7 @@ def test_detection_review_no_mutation_until_confirmed(window,flat_forms,monkeypa
     tab,panel=prepare(window,flat_forms[0])
     monkeypatch.setattr('ape_pdf_studio.ui.form_designer.default_ocr_cache',lambda:flat_forms[0].parent/'models')
     panel.ocr.setChecked(False)
+    assert not panel.ocr_language.isEnabled()
     panel.detect()
     wait_for(lambda:panel.process is None,15000)
     assert len(panel.proposals)==5,panel.feedback.text()
@@ -41,6 +42,25 @@ def test_detection_review_no_mutation_until_confirmed(window,flat_forms,monkeypa
     assert not tab.form_fields and not tab.editor.dirty
     window.redo()
     assert len(tab.form_fields)==5
+
+
+def test_label_ocr_uses_selected_language_without_downloading(window, flat_forms, monkeypatch):
+    import ape_pdf_studio.core.ocr as module
+    tab, panel = prepare(window, flat_forms[0])
+    calls = []
+    def stage(language, cache, destination, *, download):
+        calls.append((language, download))
+        destination.mkdir()
+    monkeypatch.setattr(module, "stage_tessdata", stage)
+    monkeypatch.setattr("ape_pdf_studio.ui.form_designer.default_ocr_cache", lambda: flat_forms[0].parent / "models")
+    assert {panel.ocr_language.itemData(i) for i in range(panel.ocr_language.count())} == set(module.LANGUAGES)
+    panel.ocr_language.setCurrentIndex(panel.ocr_language.findData("fra+eng"))
+    panel.detect()
+    wait_for(lambda: panel.process is None, 15000)
+    assert calls == [("fra+eng", False)]
+    assert len(panel.proposals) == 5, panel.feedback.text()
+    assert not tab.editor.dirty
+    panel.proposals = []
 
 
 def test_draw_move_resize_rename_and_remove_on_page(window,flat_forms):

@@ -65,7 +65,10 @@ def _raster_shapes(page):
     return shapes, pix,empty_boxes
 
 
-def detect_fields(source, pages, *, cache_dir=None, use_ocr=True):
+def detect_fields(source, pages, *, cache_dir=None, use_ocr=True, language="ita+eng"):
+    from .ocr import LANGUAGES
+    if not isinstance(language, str) or language not in LANGUAGES:
+        raise ValueError("Invalid OCR language")
     from pypdf import PdfReader
     import pymupdf
     configure_parser()
@@ -116,10 +119,10 @@ def detect_fields(source, pages, *, cache_dir=None, use_ocr=True):
                     try:
                         from .ocr import prepare_tessdata
                         if tessdata is None:
-                            tessdata = prepare_tessdata("ita+eng", Path(cache_dir or "."), download=False)
+                            tessdata = prepare_tessdata(language, Path(cache_dir or "."), download=False)
                         ocr_pixels = pymupdf.Pixmap(pymupdf.csRGB,pixels)
                         ocr_pixels.set_dpi(max(1, round(pixels.width/page.rect.width*72)), max(1, round(pixels.height/page.rect.height*72)))
-                        data = ocr_pixels.pdfocr_tobytes(language="ita+eng", tessdata=str(tessdata))
+                        data = ocr_pixels.pdfocr_tobytes(language=language, tessdata=str(tessdata))
                         with open_static_pdf(stream=data, filetype="pdf") as recognized:
                             ocr_page = recognized[0]
                             sx, sy = page.rect.width/ocr_page.rect.width, page.rect.height/ocr_page.rect.height

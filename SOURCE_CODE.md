@@ -32,7 +32,8 @@ your installer version, rather than the current development branch.
 
    ```powershell
    py -3.14 -m venv .venv-build
-   .\.venv-build\Scripts\python.exe -m pip install -r requirements-release.txt
+   .\scripts\build_patched_mupdf.ps1 -PythonExe .\.venv-build\Scripts\python.exe
+   .\.venv-build\Scripts\python.exe -m pip install --find-links .dev-deps/patched-wheels -r requirements-release.txt
    .\.venv-build\Scripts\python.exe -m pip install --no-build-isolation --no-deps -e .
    .\scripts\build_installer.ps1 -PythonExe .\.venv-build\Scripts\python.exe -SkipDependencyInstall
    ```
@@ -46,6 +47,24 @@ your installer version, rather than the current development branch.
 
 4. The application folder is produced under `dist/APEPDFStudio/`. The installer
    is under `dist/installer/`; source assets are under `dist/release/`.
+
+The Windows build compiles every `src/ape_pdf_studio/**/*.py` module with Cython
+and MSVC into `.pyd` files under `build/windows/cython/lib`. Cython's exact
+version is pinned in the release requirements; its source and license accompany
+the dependency archive. PyInstaller analyzes the original imports but ships our
+compiled extensions instead of Python source/bytecode modules. Minimal EXE entry
+points and the pre-import integrity bootstrap remain inside the EXEs.
+
+`scripts/prepare_bundle_integrity.py` generates the application hash manifest
+and the digest embedded in each launcher. Modified builds regenerate both;
+there is no secret key or prohibition on rebuilding. The manifest seals only
+APE's own modules/resources and native isolation/Explorer adapters. It does not
+pin third-party DLLs or prevent compatible Qt/PySide replacements. Source edits
+are unrestricted in development. Installer read-only attributes on our files
+are reversible and are handled during upgrades/uninstall. The verifier detects
+basic changes, not an attacker who can patch or replace the launcher itself.
+Signed releases sign our PYDs and native helpers before sealing, and sign the
+final EXEs/installer afterward without changing already sealed binaries.
 
 Install optional development dependencies to run the supplied tests:
 `python -m pip install pytest` then `python -m pytest -q`.

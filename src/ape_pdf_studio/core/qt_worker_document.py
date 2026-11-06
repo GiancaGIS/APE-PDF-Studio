@@ -1,6 +1,7 @@
 """Qt PDF rendering/search inside the document worker, returning raw pixels/data."""
 from collections import OrderedDict
 import bisect
+import math
 from pathlib import Path
 import time
 
@@ -16,18 +17,27 @@ class Documents:
         self.prints=None
         self.print_revision=None
 
-    def document(self,path):
+    def document(self,path,hide_ink=False):
         from .rpc_worker import checked_path
         from .form_appearance import display_copy
         from PySide6.QtCore import QBuffer,QByteArray,QIODevice
         from PySide6.QtPdf import QPdfDocument
         path=checked_path(path,self.root)
-        if path not in self.cache:
+        key=(path,hide_ink)
+        if key not in self.cache:
             while len(self.cache)>=2:
                 _,(old,buffer)=self.cache.popitem(last=False)
                 old.close();buffer.close()
+            from pypdf import PdfReader
+            from .page_coordinates import displayed_size
+            with PdfReader(path) as reader:
+                if reader.is_encrypted and not reader.decrypt(self.editor._password or ''):
+                    raise ValueError('PDF authentication failed')
+                sizes=[displayed_size(page) for page in reader.pages]
+            if any(not math.isfinite(v) or not 0<v<=1e7 for size in sizes for v in size):
+                raise ValueError('Invalid physical page size')
             data=path.read_bytes()
-            data=display_copy(data,self.editor._password)
+            data=display_copy(data,self.editor._password,omit_editable_ink=hide_ink)
             buffer=QBuffer()
             buffer.setData(QByteArray(data))
             buffer.open(QIODevice.OpenModeFlag.ReadOnly)
@@ -39,9 +49,13 @@ class Documents:
                 self.app.processEvents()
             if document.status()!=QPdfDocument.Status.Ready:
                 raise ValueError('Cannot load the PDF inside the protected renderer')
-            self.cache[path]=(document,buffer)
-        self.cache.move_to_end(path)
-        return self.cache[path][0]
+            if document.pageCount()!=len(sizes):raise ValueError('Inconsistent page table')
+            document._ape_sizes=sizes
+            document._ape_scales=[(w/document.pagePointSize(i).width(),h/document.pagePointSize(i).height())
+                                  for i,(w,h) in enumerate(sizes)]
+            self.cache[key]=(document,buffer)
+        self.cache.move_to_end(key)
+        return self.cache[key][0]
 
     def text(self,document,page):
         value=document.getAllText(page).text()
@@ -55,9 +69,9 @@ class Documents:
             result.append(result[-1]+(2 if ord(char)>0xffff else 1))
         return result
 
-    def selection(self,selection,text):
+    def selection(self,selection,text,scale=(1,1)):
         offsets=self.offsets(text)
-        bounds=[[[p.x(),p.y()] for p in polygon] for polygon in selection.bounds()]
+        bounds=[[[p.x()*scale[0],p.y()*scale[1]] for p in polygon] for polygon in selection.bounds()]
         if len(bounds)>10000:
             raise ValueError('Selection geometry exceeds budget')
         return dict(text=selection.text(),start=bisect.bisect_left(offsets,selection.startIndex()),
@@ -77,9 +91,14 @@ class Documents:
             return self.prints.path(args[0])
         if not isinstance(args,list) or not args:
             raise ValueError('Invalid protected renderer request')
-        document=self.document(args[0])
+        hide_ink=False
+        if method=='qt_render':
+            if len(args)!=6 or not isinstance(args[4],dict) or type(args[4].get('hide_ink',False))is not bool:
+                raise ValueError('Invalid protected raster options')
+            hide_ink=args[4].get('hide_ink',False)
+        document=self.document(args[0],hide_ink)
         if method=='qt_info':
-            sizes=[(document.pagePointSize(i).width(),document.pagePointSize(i).height()) for i in range(document.pageCount())]
+            sizes=document._ape_sizes
             model=QPdfBookmarkModel();model.setDocument(document)
             def children(parent,depth=0,budget=None):
                 budget=[0] if budget is None else budget
@@ -90,8 +109,10 @@ class Documents:
                     if budget[0]>10000:raise ValueError('Too many bookmarks')
                     index=model.index(row,0,parent)
                     location=index.data(int(QPdfBookmarkModel.Role.Location))
-                    result.append(dict(title=str(index.data() or '')[:4096],page=index.data(int(QPdfBookmarkModel.Role.Page)),
-                        location=(location.x(),location.y()) if location is not None else (0,0),children=children(index,depth+1,budget)))
+                    page=index.data(int(QPdfBookmarkModel.Role.Page))
+                    scale=document._ape_scales[page] if type(page)is int and 0<=page<len(sizes) else (1,1)
+                    result.append(dict(title=str(index.data() or '')[:4096],page=page,
+                        location=(location.x()*scale[0],location.y()*scale[1]) if location is not None else (0,0),children=children(index,depth+1,budget)))
                 return result
             from PySide6.QtCore import QModelIndex
             return dict(sizes=sizes,bookmarks=children(QModelIndex()))
@@ -111,7 +132,8 @@ class Documents:
                 while (hit:=haystack.find(needle,offset))>=0:
                     start,end=positions[hit],positions[hit+len(needle)-1]+1
                     selection=document.getSelectionAtIndex(page,utf16[start],utf16[end]-utf16[start])
-                    rects=[(p.boundingRect().x(),p.boundingRect().y(),p.boundingRect().width(),p.boundingRect().height()) for p in selection.bounds()]
+                    sx,sy=document._ape_scales[page]
+                    rects=[(p.boundingRect().x()*sx,p.boundingRect().y()*sy,p.boundingRect().width()*sx,p.boundingRect().height()*sy) for p in selection.bounds()]
                     result.append(dict(page=page,rectangles=rects,before=text[max(0,start-50):start],after=text[end:end+80]))
                     offset=hit+len(needle)
                     if len(result)>=5000 or time.monotonic()>deadline:return dict(results=result,truncated=True)
@@ -144,15 +166,17 @@ class Documents:
             with output.open('wb') as stream:stream.write(image.constBits())
             return None
         text=self.text(document,page)
+        sx,sy=document._ape_scales[page]
         if method=='qt_all_text':
-            return self.selection(document.getAllText(page),text)
+            return self.selection(document.getAllText(page),text,(sx,sy))
         if method=='qt_selection':
-            return self.selection(document.getSelection(page,QPointF(*args[2]),QPointF(*args[3])),text)
+            return self.selection(document.getSelection(page,QPointF(args[2][0]/sx,args[2][1]/sy),
+                QPointF(args[3][0]/sx,args[3][1]/sy)),text,(sx,sy))
         if method=='qt_selection_index':
             start,length=args[2:]
             if type(start)is not int or type(length)is not int or not 0<=start<=start+length<=len(text):raise ValueError('Invalid text range')
             offsets=self.offsets(text)
-            return self.selection(document.getSelectionAtIndex(page,offsets[start],offsets[start+length]-offsets[start]),text)
+            return self.selection(document.getSelectionAtIndex(page,offsets[start],offsets[start+length]-offsets[start]),text,(sx,sy))
         raise ValueError('Unknown protected renderer operation')
 
     def close(self):

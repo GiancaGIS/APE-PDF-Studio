@@ -87,6 +87,10 @@ QToolBar::separator { background: $border; width: 1px; margin: 4px 7px; }
 QToolButton { background: transparent; padding: 5px 6px; border: 1px solid transparent; border-radius: 7px; }
 QToolButton:hover, QToolButton:checked { background: $selected; border-color: $strong_border; }
 QToolButton:pressed { background: $pressed; }
+QToolBar#InkToolbar { background: $surface; border-bottom: 1px solid $border; padding: 4px 8px; spacing: 3px; }
+QToolButton#InkTool:checked { background: $selected; color: $accent_dark; border: 1px solid $strong_border; }
+QFrame#InkStylePanel { background: $surface; border: 0; }
+QScrollArea#InkStyleScroll, QScrollArea#InkStyleScroll > QWidget > QWidget { background: $surface; border: 0; }
 QToolButton:disabled { color: $disabled_text; }
 QToolButton::menu-button { border: 0; border-left: 1px solid $border; width: 14px; }
 QPushButton { background: white; border: 1px solid $border; border-radius: 8px; padding: 8px 12px; }

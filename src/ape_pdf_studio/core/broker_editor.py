@@ -36,6 +36,7 @@ class BrokerEditor:
         self._state=None
         self._saved_revision=None
         self._closed=False
+        self._signatures=set()
         try:
             copy_checked(self.source,self._original)
             # Preserve the independent 12-second input gate before starting the
@@ -187,6 +188,60 @@ class BrokerEditor:
             self._zone=max((z for z in (zone,self._zone) if z is not None),default=None)
             return result
         finally:snapshot.unlink(missing_ok=True)
+
+    def prepare_signature(self, source):
+        from .image_signature import MAX_IMAGE_BYTES
+        from .artifacts import read_artifact
+        from .localization import tr
+        token=uuid4().hex
+        snapshot=self._root/(token+'.image')
+        asset=self._root/(token+'.signature.pdf')
+        raster=self._root/(token+'.rgba')
+        with self._lock:
+            try:
+                check_budget(self._root,3*MAX_IMAGE_BYTES)
+                source=user_path(source)
+                if not source.is_file() or source.suffix.lower() not in ('.png','.jpg','.jpeg'):
+                    raise PDFOperationError(tr('Scegli un\'immagine PNG oppure JPEG.'))
+                # Bounded copy only. All image parsing happens inside AppContainer.
+                with source.open('rb') as incoming, snapshot.open('xb') as output:
+                    remaining=MAX_IMAGE_BYTES+1
+                    while remaining:
+                        chunk=incoming.read(min(1024*1024,remaining))
+                        if not chunk:break
+                        output.write(chunk)
+                        remaining-=len(chunk)
+                    if not 0<output.tell()<=MAX_IMAGE_BYTES:
+                        raise PDFOperationError(tr('Immagine firma non valida. Usa un PNG o JPEG fino a 16 MiB e 16 megapixel.'))
+                info=self.call('prepare_signature',snapshot,asset,raster)
+                self.checked_path(asset)
+                self.checked_path(raster)
+                count=info['width']*info['height']*4
+                pixels=read_artifact(raster,self._root,count)
+                if len(pixels)!=count:raise ValueError('Invalid signature raster length')
+                check_budget(self._root)
+                self._signatures.add(asset)
+                return dict(info,asset=asset,pixels=pixels)
+            except Exception:
+                asset.unlink(missing_ok=True)
+                raise
+            finally:
+                snapshot.unlink(missing_ok=True)
+                raster.unlink(missing_ok=True)
+
+    def release_signature(self, asset):
+        with self._lock:
+            if asset in self._signatures:
+                self._signatures.remove(asset)
+                asset.unlink(missing_ok=True)
+
+    def insert_signature(self, page, asset, rect, revision):
+        from .localization import tr
+        with self._lock:
+            if asset not in self._signatures:
+                raise PDFOperationError(tr('Posizione della firma non valida.'))
+            self.checked_path(asset)
+            return self.call('insert_signature',page,asset,rect,revision)
 
     def validate_form_design(self,proposals,deleted):
         return self.call('validate_form_design',proposals,deleted)

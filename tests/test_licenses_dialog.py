@@ -1,5 +1,6 @@
 """Legal documents remain readable and the help dialog follows UI language."""
 import pytest
+from pathlib import Path
 
 from test_gui import app
 from test_localization import preferences
@@ -35,6 +36,12 @@ def test_legal_dialog_and_about_show_license_and_current_version(app, preference
         assert "Copyright (C) 2026 GiancaGIS" in messages[0]
         assert "AGPLv3" in messages[0] and "LGPLv3" in messages[0]
         assert "?" not in messages[0]
+        assert {'it': 'SENZA GARANZIE', 'en': 'WITHOUT WARRANTIES',
+                'es': 'SIN GARANTÍAS', 'fr': 'SANS GARANTIE'}[language] in messages[0]
+        assert '15–17' in messages[0]
+        if language == 'en':
+            readme = (Path(__file__).resolve().parents[1] / 'README.md').read_text(encoding='utf-8')
+            assert readme.split('## Disclaimer', 1)[1].strip().split('\n', 1)[0] in messages[0]
     finally:
         dialog.close()
         window.close()

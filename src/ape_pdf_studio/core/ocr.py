@@ -22,11 +22,17 @@ from .errors import PDFOperationError, PDFPasswordRequired
 from .page_coordinates import displayed_size, to_pdf
 from .security import check_pdf, configure_parser, copy_checked
 
-LANGUAGES = {"ita": "Italiano", "eng": "Inglese", "ita+eng": "Italiano e inglese"}
+LANGUAGES = {
+    "ita+eng": "Italiano e inglese",
+    "ita": "Italiano", "eng": "Inglese", "spa": "Spagnolo", "fra": "Francese",
+    "spa+eng": "Spagnolo e inglese", "fra+eng": "Francese e inglese",
+}
 MODEL_URL = "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/"
 MODEL_HASHES = {
     "ita": "b8f89e1e785118dac4d51ae042c029a64edb5c3ee42ef73027a6d412748d8827",
     "eng": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+    "spa": "6f2e04d02774a18f01bed44b1111f2cd7f3ba7ac9dc4373cd3f898a40ea6b464",
+    "fra": "ced037562e8c80c13122dece28dd477d399af80911a28791a66a63ac1e3445ca",
 }
 MAX_PIXELS = 16_000_000
 
@@ -47,8 +53,8 @@ def stage_tessdata(language,cache_dir,destination,*,download=False):
 
 def prepare_tessdata(language, cache_dir, *, download=False, progress=None):
     """Use installed language data, or fetch fixed, hash-checked official models."""
-    if language not in LANGUAGES:
-        raise PDFOperationError(tr("Scegli italiano, inglese oppure entrambe le lingue."))
+    if not isinstance(language, str) or language not in LANGUAGES:
+        raise PDFOperationError(tr("Seleziona una lingua OCR disponibile."))
     languages = language.split("+")
     cache = Path(cache_dir)
     candidates = [cache]
@@ -89,7 +95,7 @@ def prepare_tessdata(language, cache_dir, *, download=False, progress=None):
             raise
         except OSError as exc:
             raise PDFOperationError(tr("Impossibile scaricare i dati OCR. Controlla la connessione oppure imposta "
-                                    "TESSDATA_PREFIX su una cartella con ita.traineddata e eng.traineddata.")) from exc
+                                    "TESSDATA_PREFIX su una cartella con i modelli delle lingue selezionate.")) from exc
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
@@ -127,7 +133,7 @@ def recognize_pdf(source, destination, *, language="ita+eng", pages=None, dpi=30
     source, destination = user_path(source), user_path(destination)
     if same_file(destination, source) or destination.suffix.lower() != ".pdf":
         raise PDFOperationError(tr("La destinazione OCR deve essere un altro file .pdf."))
-    if language not in LANGUAGES or dpi not in (150, 300):
+    if not isinstance(language, str) or language not in LANGUAGES or dpi not in (150, 300):
         raise PDFOperationError(tr("Lingua o risoluzione OCR non valida."))
     notify = progress or (lambda *_: None)
     try:
