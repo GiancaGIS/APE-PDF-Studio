@@ -15,13 +15,72 @@ from ape_pdf_studio.core.ocr import prepare_tessdata, recognize_pdf
 
 @pytest.fixture
 def tessdata():
+    return find_tessdata(("ita", "eng"))
+
+
+def find_tessdata(codes):
     candidates = [Path(__file__).resolve().parents[1] / ".dev-deps/tessdata"]
     if os.environ.get("TESSDATA_PREFIX"):
         candidates.append(Path(os.environ["TESSDATA_PREFIX"]))
     for folder in candidates:
-        if all((folder / f"{code}.traineddata").exists() for code in ("ita", "eng")):
+        if all((folder / f"{code}.traineddata").exists() for code in codes):
             return folder
-    pytest.skip("Real OCR requires ita.traineddata and eng.traineddata (see README).")
+    pytest.skip("Real OCR requires local models: " + ", ".join(codes))
+
+
+@pytest.fixture
+def localized_scan(tmp_path, language):
+    models = find_tessdata(language.split("+"))
+    text = {"spa": "Documento español: información y número",
+            "fra": "Document français : édition et sécurité"}[language.split("+")[0]]
+    source = tmp_path / "localized-scan.pdf"
+    with pymupdf.open() as document:
+        page = document.new_page(width=500, height=350)
+        page.insert_text((40, 80), text, fontsize=20)
+        page.insert_text((40, 130), "English searchable document", fontsize=20)
+        pixels = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
+    with pymupdf.open() as document:
+        page = document.new_page(width=500, height=350)
+        page.insert_image(page.rect, pixmap=pixels)
+        document.save(source)
+    return source, models, text
+
+
+@pytest.mark.parametrize("language", ("spa", "fra", "spa+eng", "fra+eng"))
+def test_real_spanish_and_french_ocr_preserves_scan(localized_scan, language, tmp_path):
+    import hashlib
+    from ape_pdf_studio.core.ocr import MODEL_HASHES
+    source, models, expected = localized_scan
+    original = source.read_bytes()
+    for code in language.split("+"):
+        assert hashlib.sha256((models / (code + ".traineddata")).read_bytes()).hexdigest() == MODEL_HASHES[code]
+    output = tmp_path / "recognized.pdf"
+    result = recognize_pdf(source, output, language=language, cache_dir=models, download=False)
+    assert result["recognized"] == [1]
+    with pymupdf.open(source) as before, pymupdf.open(output) as after:
+        assert expected in " ".join(after[0].get_text().split())
+        if "+eng" in language:
+            assert "English searchable document" in after[0].get_text()
+        assert before[0].get_pixmap().samples == after[0].get_pixmap().samples
+    assert source.read_bytes() == original
+
+
+def test_ocr_models_cover_all_interface_languages():
+    from ape_pdf_studio.core.localization import LANGUAGES as UI_LANGUAGES
+    from ape_pdf_studio.core.ocr import LANGUAGES, MODEL_HASHES
+    codes = {"it": "ita", "en": "eng", "es": "spa", "fr": "fra"}
+    assert set(codes) == set(UI_LANGUAGES)
+    assert set(MODEL_HASHES) == set(codes.values())
+    assert all(code in LANGUAGES for code in codes.values())
+
+
+@pytest.mark.parametrize("language", ("deu", "../spa", "fra+eng+deu", "fra+fra", "", None, ["fra"]))
+def test_unsupported_language_rejected_before_model_access(tmp_path, monkeypatch, language):
+    import ape_pdf_studio.core.ocr as module
+    monkeypatch.setattr(module, "urlopen", lambda *a, **kw: pytest.fail("Unexpected download"))
+    with pytest.raises(PDFOperationError, match="lingua OCR"):
+        prepare_tessdata(language, tmp_path, download=True)
+    assert not list(tmp_path.iterdir())
 
 
 @pytest.fixture
@@ -164,10 +223,11 @@ def test_invalid_options_encryption_and_failure_keep_output(scan_pdf, tessdata, 
     assert not list(tmp_path.glob(".apex_export_*"))
 
 
-def test_model_download_is_verified_cached_and_reusable_offline(tmp_path, monkeypatch):
+@pytest.mark.parametrize("language", ("ita", "eng", "spa", "fra", "ita+eng", "spa+eng", "fra+eng"))
+def test_model_download_is_verified_cached_and_reusable_offline(tmp_path, monkeypatch, language):
     import hashlib
     import ape_pdf_studio.core.ocr as module
-    data = {"ita": b"italian model", "eng": b"english model"}
+    data = {code: (code + " model").encode() for code in language.split("+")}
     for code, content in data.items():
         monkeypatch.setitem(module.MODEL_HASHES, code, hashlib.sha256(content).hexdigest())
     downloads = []
@@ -176,14 +236,15 @@ def test_model_download_is_verified_cached_and_reusable_offline(tmp_path, monkey
         downloads.append(code)
         return io.BytesIO(data[code])
     monkeypatch.setattr(module, "urlopen", fetch)
-    assert prepare_tessdata("ita+eng", tmp_path, download=True) == tmp_path
-    assert downloads == ["ita", "eng"]
-    assert prepare_tessdata("ita+eng", tmp_path, download=False) == tmp_path
-    assert downloads == ["ita", "eng"]
-    (tmp_path / "ita.traineddata").write_bytes(b"corrupted cached model")
-    prepare_tessdata("ita+eng", tmp_path, download=True)
-    assert downloads == ["ita", "eng", "ita"]
-    assert (tmp_path / "ita.traineddata").read_bytes() == data["ita"]
+    codes = list(data)
+    assert prepare_tessdata(language, tmp_path, download=True) == tmp_path
+    assert downloads == codes
+    assert prepare_tessdata(language, tmp_path, download=False) == tmp_path
+    assert downloads == codes
+    (tmp_path / (codes[0] + ".traineddata")).write_bytes(b"corrupted cached model")
+    prepare_tessdata(language, tmp_path, download=True)
+    assert downloads == codes + [codes[0]]
+    assert (tmp_path / (codes[0] + ".traineddata")).read_bytes() == data[codes[0]]
     assert not list(tmp_path.glob(".ocr_*"))
 
 

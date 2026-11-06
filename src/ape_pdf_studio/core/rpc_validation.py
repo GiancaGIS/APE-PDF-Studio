@@ -96,13 +96,21 @@ def annotations(value,*,links=False):
 
 
 def result(method,value):
-    if method == 'ink':
+    if method == 'prepare_signature':
+        if not isinstance(value,dict) or set(value)!={'width','height'}:
+            raise ValueError('Invalid signature raster')
+        integer(value['width'],1,2048);integer(value['height'],1,2048)
+    elif method == 'insert_signature':
+        if value is not None:raise ValueError('Invalid signature edit response')
+    elif method == 'ink':
         if (not isinstance(value,dict) or set(value)!={'rows','truncated'} or
                 type(value['truncated']) is not bool or not isinstance(value['rows'],list) or len(value['rows'])>2000):
             raise ValueError('Invalid ink response')
         total=0
         for row in value['rows']:
-            if not isinstance(row,dict) or set(row)!={'page','index','paths','color','width','opacity'}:
+            if (not isinstance(row,dict) or set(row)-{'page','index','paths','color','width','opacity','smooth'} or
+                    not {'page','index','paths','color','width','opacity'}<=set(row) or
+                    ('smooth' in row and type(row['smooth'])is not bool)):
                 raise ValueError('Invalid ink record')
             integer(row['page'],0,2999);integer(row['index'],0,1000000)
             geometry(row['color'],3);geometry((row['width'],row['opacity']),2)

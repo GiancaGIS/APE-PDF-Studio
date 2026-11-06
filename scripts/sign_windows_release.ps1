@@ -5,17 +5,29 @@ param(
     [string]$Installer,
     [string]$CertificateThumbprint,
     [string]$TimestampServer,
-    [switch]$VerifyOnly
+    [switch]$VerifyOnly,
+    [switch]$CompileStage
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $BundleDir = (Resolve-Path -LiteralPath $BundleDir).Path
+if ($CompileStage) {
+    if ($Installer) { throw 'CompileStage cannot sign an installer.' }
+    $files = @(Get-ChildItem -LiteralPath (Join-Path $BundleDir 'ape_pdf_studio') -Recurse -Filter '*.pyd' -File | Select-Object -ExpandProperty FullName)
+    $files += @((Join-Path $PSScriptRoot '..\build\windows\shell\APEPDFShell.dll'), (Join-Path $PSScriptRoot '..\build\windows\sandbox\APEPDFSandbox.exe'))
+    $files = @($files | ForEach-Object { (Resolve-Path -LiteralPath $_).Path })
+} else {
 $files = @('APEPDFStudio.exe','APEPDFWorker.exe','ape-pdf-cli.exe','APEPDFSandbox.exe','APEPDFShell.dll') |
     ForEach-Object { Join-Path $BundleDir $_ }
+}
 foreach ($path in $files) { if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing release binary: $path" } }
 $owned=@($files)
-$dependencies=@(Get-ChildItem -LiteralPath (Join-Path $BundleDir '_internal') -Recurse -File |
+$dependencies=if ($CompileStage) { @() } else { @(Get-ChildItem -LiteralPath (Join-Path $BundleDir '_internal') -Recurse -File |
     Where-Object { $_.Extension -in @('.dll','.pyd','.exe') } | Select-Object -ExpandProperty FullName)
+}
+if (-not $CompileStage) {
+    $owned += @(Get-ChildItem -LiteralPath (Join-Path $BundleDir '_internal\ape_pdf_studio') -Recurse -Filter '*.pyd' -File | Select-Object -ExpandProperty FullName)
+}
 $files=@($files+$dependencies | Sort-Object -Unique)
 if ($Installer) { $Installer = (Resolve-Path -LiteralPath $Installer).Path }
 if (-not $VerifyOnly) {
@@ -35,7 +47,12 @@ if (-not $VerifyOnly) {
     # At the second stage only sign the installer: its bundled files must remain
     # byte-for-byte identical to the already signed and packaged application.
     $targets = if ($Installer) { @($Installer) } else {
-        @($files | Where-Object { $owned -contains $_ -or (Get-AuthenticodeSignature -LiteralPath $_).Status -eq 'NotSigned' })
+        @($files | Where-Object {
+            $existing = Get-AuthenticodeSignature -LiteralPath $_
+            if ($owned -contains $_) {
+                $existing.Status -ne 'Valid' -or -not $existing.TimeStamperCertificate -or $existing.SignerCertificate.Thumbprint -ne $CertificateThumbprint
+            } else { $existing.Status -eq 'NotSigned' }
+        })
     }
     foreach ($path in $targets) {
         & $signTool sign /sha1 $CertificateThumbprint /s My /fd SHA256 /tr $TimestampServer /td SHA256 $path

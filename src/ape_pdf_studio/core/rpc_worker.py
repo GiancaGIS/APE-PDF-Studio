@@ -10,7 +10,7 @@ if not getattr(sys,'frozen',False):
 
 from ape_pdf_studio.core import rpc_codec
 
-METHODS = frozenset(('insert_blank','add_watermark','ink','update_ink','metadata','update_metadata','interactions','fill_form','rotate','create_form_fields',
+METHODS = frozenset(('prepare_signature','insert_signature','insert_blank','add_watermark','ink','update_ink','metadata','update_metadata','interactions','fill_form','rotate','create_form_fields',
     'form_design','update_form_fields','delete','move','insert_pdf','add_note','notes','update_note',
     'add_text_markup','extract','text_at','text_boxes','replace_text','paragraph_at','paragraph_boxes',
     'paragraph_info','replace_paragraph','apply_ocr','undo','redo'))
@@ -75,6 +75,10 @@ def main():
                     args=request.get('args',[])
                     if not isinstance(args,list) or len(args)>8:
                         raise ValueError('Invalid method arguments')
+                    if method == 'prepare_signature' and (len(args)!=3 or any(not isinstance(arg,Path) for arg in args)):
+                        raise ValueError('Invalid signature artifact paths')
+                    if method == 'insert_signature' and (len(args)!=4 or not isinstance(args[1],Path)):
+                        raise ValueError('Invalid signature asset path')
                     for arg in args:
                         if isinstance(arg,Path):
                             checked_path(arg,root)

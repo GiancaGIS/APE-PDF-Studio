@@ -17,6 +17,7 @@ from ..core.errors import PDFOperationError
 from ..core.form_design import MAX_ANALYSIS_PAGES
 from ..core.form_edit import PROPERTIES, validate_design
 from ..core.localization import tr
+from ..core.ocr import LANGUAGES
 from ..core.security import copy_checked
 from ..core.worker_process import worker_command
 from ..core.sandbox import wrap_command
@@ -70,6 +71,15 @@ class FormDesigner(QWidget):
         self.ocr.setChecked(True)
         self.ocr.setToolTip(tr("Usa le lingue OCR già installate. Nessun download o invio del documento."))
         layout.addWidget(self.ocr)
+        self.ocr_language = QComboBox()
+        self.ocr_language.setAccessibleName(tr("Lingua OCR etichette"))
+        for code, name in LANGUAGES.items():
+            self.ocr_language.addItem(tr(name), code)
+        self.ocr.toggled.connect(self.ocr_language.setEnabled)
+        row = QFormLayout()
+        row.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        row.addRow(tr("Lingua OCR etichette"), self.ocr_language)
+        layout.addLayout(row)
         row = QHBoxLayout()
         self.detect_button = QPushButton(tr("Riconosci campi"))
         self.detect_button.clicked.connect(self.detect)
@@ -411,9 +421,10 @@ class FormDesigner(QWidget):
             if self.ocr.isChecked():
                 try:
                     from ..core.ocr import stage_tessdata
-                    stage_tessdata('ita+eng',default_ocr_cache(),models,download=False)
+                    stage_tessdata(self.ocr_language.currentData(),default_ocr_cache(),models,download=False)
                 except PDFOperationError:pass  # Geometry recognition remains available without models.
-            request = json.dumps(dict(path=str(source), pages=pages, cache_dir=str(models), use_ocr=self.ocr.isChecked())).encode()
+            request = json.dumps(dict(path=str(source), pages=pages, cache_dir=str(models),
+                                      use_ocr=self.ocr.isChecked(), language=self.ocr_language.currentData())).encode()
             process.started.connect(lambda: (process.write(request), process.closeWriteChannel()))
             self.detect_button.setEnabled(False)
             self.draw_kind.setEnabled(False)

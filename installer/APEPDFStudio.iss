@@ -50,7 +50,8 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-UsePreviousPrivileges=no
+; Keep upgrades in the existing install scope (AppId is stable and literal).
+UsePreviousPrivileges=yes
 UsePreviousAppDir=yes
 DisableDirPage=no
 DisableProgramGroupPage=yes
@@ -115,9 +116,12 @@ Type: files; Name: "{autoprograms}\APEX PDF Studio.lnk"
 Type: files; Name: "{autodesktop}\APEX PDF Studio.lnk"
 
 [Files]
-Source: "{#DistDir}\*"; DestDir: "{app}"; Excludes: "APEPDFShell.dll"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#DistDir}\*"; DestDir: "{app}"; Excludes: "APEPDFShell.dll,_internal\ape_pdf_studio\*,_internal\ape-integrity.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Read-only is an accidental-edit barrier, not an ACL/security boundary.
+; Keep third-party DLLs replaceable; upgrades/uninstall handle our attributes.
+Source: "{#DistDir}\_internal\ape_pdf_studio\*"; DestDir: "{app}\_internal\ape_pdf_studio"; Attribs: readonly; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly uninsremovereadonly
+Source: "{#DistDir}\_internal\ape-integrity.json"; DestDir: "{app}\_internal"; Attribs: readonly; Flags: ignoreversion overwritereadonly uninsremovereadonly
 Source: "{#DistDir}\APEPDFShell.dll"; DestDir: "{app}"; Flags: ignoreversion restartreplace uninsrestartdelete; Check: IsX64
-; A custom wizard text supplements, rather than replaces, the AGPL license.
 Source: "{#ProjectRoot}\LICENSE"; DestDir: "{app}"; DestName: "LICENSE"; Flags: ignoreversion
 Source: "{#LicensePath}"; DestDir: "{app}"; DestName: "INSTALLATION-LICENSE"; Flags: ignoreversion
 

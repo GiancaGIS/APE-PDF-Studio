@@ -90,12 +90,22 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Preparazione licenze/sorgenti fallita.' }
         & (Join-Path $PSScriptRoot 'build_windows_shell.ps1')
         & (Join-Path $PSScriptRoot 'build_windows_sandbox.ps1')
+        Write-Host '[APE] Compilo tutti i moduli applicativi in PYD...'
+        & $PythonExe (Join-Path $PSScriptRoot 'compile_app_modules.py')
+        if ($LASTEXITCODE -ne 0) { throw 'Compilazione PYD fallita.' }
+        if ($Release) {
+            & (Join-Path $PSScriptRoot 'sign_windows_release.ps1') -BundleDir (Join-Path $projectRoot 'build\windows\cython\lib') -CompileStage -CertificateThumbprint $CertificateThumbprint -TimestampServer $TimestampServer
+        }
+        & $PythonExe (Join-Path $PSScriptRoot 'prepare_bundle_integrity.py')
+        if ($LASTEXITCODE -ne 0) { throw 'Preparazione integrità applicazione fallita.' }
         Write-Host '[APE] Creo il pacchetto Windows...'
         & $PythonExe -m PyInstaller --noconfirm --distpath $DistRoot --workpath (Join-Path $projectRoot 'build\pyinstaller') (Join-Path $projectRoot 'installer\APEPDFStudio.spec')
         if ($LASTEXITCODE -ne 0) { throw 'Build PyInstaller fallita.' }
     }
 
     $bundleDir = Join-Path $DistRoot 'APEPDFStudio'
+    & $PythonExe (Join-Path $PSScriptRoot 'prepare_bundle_integrity.py') --verify $bundleDir
+    if ($LASTEXITCODE -ne 0) { throw 'Integrità del pacchetto non verificata. Ricrea la build.' }
     & $PythonExe (Join-Path $PSScriptRoot 'security_inventory.py') --release --output (Join-Path $DistRoot 'security-inventory.json')
     if ($LASTEXITCODE -ne 0) { throw 'Gate delle dipendenze di sicurezza non superato.' }
     if (-not (Test-Path -LiteralPath (Join-Path $bundleDir 'APEPDFShell.dll'))) { throw 'Shell extension mancante. Ricrea il pacchetto Windows.' }
@@ -118,6 +128,8 @@ try {
     }
     if ($Release) {
         & (Join-Path $PSScriptRoot 'sign_windows_release.ps1') -BundleDir $bundleDir -CertificateThumbprint $CertificateThumbprint -TimestampServer $TimestampServer
+        & $PythonExe (Join-Path $PSScriptRoot 'prepare_bundle_integrity.py') --verify $bundleDir
+        if ($LASTEXITCODE -ne 0) { throw 'Integrità alterata dopo la firma del pacchetto.' }
     } else { Write-Warning 'Build di sviluppo non firmata: non pubblicare come release autenticata.' }
     if ($BundleOnly) { Write-Host "Pacchetto pronto: $bundleDir"; return }
 

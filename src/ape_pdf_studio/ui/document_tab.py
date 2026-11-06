@@ -32,6 +32,7 @@ from .inline_forms import InlineForms
 from .inline_text import InlineText
 from .form_designer import FormDesigner
 from .ink import InkController
+from .image_signature import SignatureController
 
 
 class SearchResultDelegate(QStyledItemDelegate):
@@ -187,6 +188,9 @@ class DocumentTab(QWidget):
         self.ink = InkController(self)
         self.viewer.ink = self.ink
         root.insertWidget(1, self.ink.bar)
+        self.signature = SignatureController(self)
+        self.viewer.signature = self.signature
+        root.insertWidget(1, self.signature.bar)
         self.pdf.statusChanged.connect(self._on_pdf_status)
         try:
             self._reload(0)
@@ -201,14 +205,14 @@ class DocumentTab(QWidget):
 
     @property
     def dirty(self):
-        return self.editor.dirty or self.inline_form.dirty or self.inline_text.dirty or self.ink.dirty
+        return self.editor.dirty or self.inline_form.dirty or self.inline_text.dirty or self.ink.dirty or self.signature.dirty
 
     def _commit_inline_form(self, values, revision):
         self.apply_edit("fill_form", values, revision)
         return self.editor.path
 
     def finish_form(self):
-        return self.inline_form.finish() and self.inline_text.finish() and self.ink.finish()
+        return self.inline_form.finish() and self.inline_text.finish() and self.ink.finish() and self.signature.finish()
 
     @property
     def page(self) -> int:
@@ -219,6 +223,7 @@ class DocumentTab(QWidget):
         return self.pdf.pageCount()
 
     def _reload(self, target_page: int) -> None:
+        self.signature.document_changed()
         self.inline_text.document_changed()
         self.inline_form.cancel()
         self.links, self.form_fields = self.editor.interactions()
@@ -363,12 +368,15 @@ class DocumentTab(QWidget):
             current = args[0]
         self._pending_page = current
         self._reload(current)
-        if method in ("fill_form", "replace_text", "replace_paragraph", "update_ink"):
+        if method in ("fill_form", "replace_text", "replace_paragraph", "update_ink", "insert_signature"):
             self.viewer.horizontalScrollBar().setValue(scroll[0])
             self.viewer.verticalScrollBar().setValue(scroll[1])
         self.changed.emit()
 
     def undo(self) -> None:
+        if self.signature.dirty:
+            self.signature.cancel()
+            return
         if self.ink.undo():
             return
         if not self.finish_form():
@@ -396,6 +404,7 @@ class DocumentTab(QWidget):
         dialog.deleteLater()
 
     def close_document(self) -> None:
+        self.signature.shutdown()
         self.ink.shutdown()
         self.inline_text.shutdown()
         self.form_designer.shutdown()

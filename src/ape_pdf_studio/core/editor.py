@@ -222,6 +222,18 @@ class PDFEditor:
         from .document_tools import watermark
         self._commit(lambda writer, reader: watermark(writer, reader, text, size, color, opacity, angle))
 
+    def prepare_signature(self, source, asset, raster):
+        from .image_signature import prepare
+        if self.encrypted:
+            raise PDFOperationError(tr('I PDF protetti sono in sola lettura.'))
+        return prepare(source, asset, raster)
+
+    def insert_signature(self, page, asset, rect, revision):
+        from .image_signature import insert
+        if str(revision) != str(self.path):
+            raise PDFOperationError(tr("Il documento è cambiato. Ripeti l'operazione."))
+        self._commit(lambda writer, reader: insert(writer, reader, page, asset, rect))
+
     def ink(self):
         from .ink import read_ink
         with PdfReader(self.path) as reader:
@@ -229,14 +241,14 @@ class PDFEditor:
                 raise PDFPasswordRequired(tr("Password necessaria o non corretta."))
             return read_ink(reader)
 
-    def update_ink(self, strokes, deleted, revision) -> None:
+    def update_ink(self, strokes, deleted, revision, replaced=()) -> None:
         from .ink import apply_ink
         if str(revision) != str(self.path):
             raise PDFOperationError(tr("Il documento è cambiato. Ripeti l'operazione."))
-        if not isinstance(strokes, list) or not isinstance(deleted, list):
+        if not isinstance(strokes, list) or not isinstance(deleted, list) or not isinstance(replaced, (list, tuple)):
             raise PDFOperationError('Invalid ink batch')
-        if strokes or deleted:
-            self._commit(lambda writer, reader: apply_ink(writer, reader, strokes, deleted))
+        if strokes or deleted or replaced:
+            self._commit(lambda writer, reader: apply_ink(writer, reader, strokes, deleted, replaced))
 
     def rotate(self, page: int, degrees: int = 90) -> None:
         if degrees not in (90, 180, 270, -90, -180, -270):

@@ -132,10 +132,11 @@ class EditJob(QThread):
         super().__init__(parent)
         self.editor, self.method, self.args = editor, method, args
         self.error = ''
+        self.value = None
 
     def run(self):
         try:
-            getattr(self.editor, self.method)(*self.args)
+            self.value = getattr(self.editor, self.method)(*self.args)
         except Exception as exc:
             self.error = str(exc)
 
@@ -170,3 +171,4 @@ class EditProgress(QDialog):
         self.job.wait()
         if self.job.error:
             raise PDFOperationError(self.job.error)
+        return self.job.value

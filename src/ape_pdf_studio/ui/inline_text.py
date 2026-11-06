@@ -124,6 +124,8 @@ class InlineText(QObject):
     def activate(self):
         if self._closed or not self.view.editable or self.tab.form_designer.isVisible():
             return False
+        if not self.tab.signature.finish():
+            return False
         if not self.tab.inline_form.finish():
             return False
         if self.tab.ink.active and not self.tab.ink.deactivate():

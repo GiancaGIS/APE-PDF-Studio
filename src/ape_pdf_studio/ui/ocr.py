@@ -37,8 +37,8 @@ class OcrDialog(QDialog):
         layout.addWidget(description)
         form = QFormLayout()
         self.language = QComboBox()
-        for code in ("ita+eng", "ita", "eng"):
-            self.language.addItem(tr(LANGUAGES[code]), code)
+        for code, name in LANGUAGES.items():
+            self.language.addItem(tr(name), code)
         form.addRow(tr("Lingua"), self.language)
         self.scope = QComboBox()
         self.scope.addItem(tr("Tutte le pagine"), "all")

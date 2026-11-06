@@ -95,6 +95,7 @@ class TextPdfView(RemotePdfView):
         document = self.document()
         if document and document.status() == QPdfDocument.Status.Ready:
             self._renderer = RemoteRenderer(self)
+            self._renderer.hide_ink = bool(self.ink and self.ink.active)
             self._renderer.setRenderMode(QPdfPageRenderer.RenderMode.MultiThreaded)
             self._renderer.setDocument(document)
             epoch = self._render_epoch
@@ -608,8 +609,10 @@ class TextPdfView(RemotePdfView):
         pages = {page: rect.translated(-self.horizontalScrollBar().value(), -self.verticalScrollBar().value())
                  for page, rect in self.page_rects().items()}
         pages = {page: rect for page, rect in pages.items() if rect.intersects(viewport)}
-        self.vectors.request(sorted(pages, key=lambda page: (pages[page].center() - viewport.center()).manhattanLength()))
-        vector_pages = self.vectors.cache if self.vectors.enabled else {}
+        editing_ink = self.ink and self.ink.active
+        if not editing_ink:
+            self.vectors.request(sorted(pages, key=lambda page: (pages[page].center() - viewport.center()).manhattanLength()))
+        vector_pages = self.vectors.cache if self.vectors.enabled and not editing_ink else {}
         self._wanted = viewport_plan({page: rect for page, rect in pages.items() if page not in vector_pages},
                                      viewport, self.devicePixelRatioF())
         self._failed.intersection_update(self._wanted)
@@ -679,6 +682,8 @@ class TextPdfView(RemotePdfView):
                 painter.setBrush(selection_color)
                 for polygon in self.selection.bounds():
                     painter.drawPolygon(transform.map(polygon))
+            if getattr(self, 'signature', None):
+                self.signature.paint(painter, page, transform)
             if self.ink:
                 self.ink.paint(painter, page, transform)
         painter.end()

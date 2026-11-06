@@ -45,7 +45,7 @@ from .document_tools import BlankPageDialog, WatermarkDialog, EditProgress
 from .print_dialog import PrintDialog
 from .ocr import OcrDialog, OcrJob
 from .language import configure_language
-from .licenses_dialog import LicensesDialog
+from .licenses_dialog import LicensesDialog, software_disclaimer
 from .updates_dialog import UpdatesDialog
 from .update_checker import UpdateChecker
 from ..core.pdf_links import allowed_url
@@ -215,6 +215,7 @@ class MainWindow(QMainWindow):
         self.a_insert = self._action(tr("Inserisci altro PDF…"), self.insert_pdf, edit=True)
         self.a_blank = self._action(tr('Inserisci pagina bianca…'), self.insert_blank, edit=True)
         self.a_watermark = self._action(tr('Aggiungi filigrana…'), self.add_watermark, edit=True)
+        self.a_signature = self._action(tr('Aggiungi firma da immagine…'), lambda: self.current.signature.choose(), edit=True)
         self.a_draw = self._action(tr('Disegna a mano libera'), lambda: self.current.ink.toggle(), edit=True)
         self.a_draw.setCheckable(True)
         self.a_note = self._action(tr("Aggiungi nota…"), self.add_note, "Ctrl+M", edit=True)
@@ -243,7 +244,7 @@ class MainWindow(QMainWindow):
         icon_names = {"open": "open", "save_current": "save", "save": "save", "print": "print", "undo": "undo", "redo": "redo",
                       "rotate": "rotate", "delete": "delete", "note": "note", "copy": "copy", "edit_text": "edit_text",
                       "highlight": "highlight", "underline": "underline", "insert": "insert", "extract": "extract", "split": "split",
-                      "blank": "insert", "watermark": "watermark", "draw": "draw",
+                      "blank": "insert", "watermark": "watermark", "draw": "draw", "signature": "signature",
                       "prev": "prev", "next": "next", "zoom_out": "minus", "zoom_in": "plus",
                       "fit_width": "width", "fit_page": "page", "find": "search", "find_prev": "up", "find_next": "down", "sidebar": "sidebar", "info": "info"}
         for name, glyph in icon_names.items():
@@ -265,7 +266,7 @@ class MainWindow(QMainWindow):
         menu_file.insertMenu(self.a_info, exports)
         menu_edit = self.menuBar().addMenu(tr("Modifica"))
         for a in (self.a_undo, self.a_redo, self.a_rotate, self.a_rotate_ccw,
-                  self.a_delete, self.a_up, self.a_down, self.a_insert, self.a_blank, self.a_watermark, self.a_draw, self.a_note,
+                  self.a_delete, self.a_up, self.a_down, self.a_insert, self.a_blank, self.a_watermark, self.a_draw, self.a_signature, self.a_note,
                   self.a_copy, self.a_highlight, self.a_underline, self.a_edit_text, self.a_ocr, self.a_form,self.a_prepare_form):
             menu_edit.addAction(a)
         menu_view = self.menuBar().addMenu(tr("Visualizza"))
@@ -322,7 +323,7 @@ class MainWindow(QMainWindow):
         annotations = QMenu(self.annotate_button)
         annotations.addActions([self.a_copy, self.a_highlight, self.a_underline, self.a_note, self.a_edit_text, self.a_ocr, self.a_form])
         annotations.addAction(self.a_prepare_form)
-        annotations.addActions([self.a_draw, self.a_watermark])
+        annotations.addActions([self.a_draw, self.a_signature, self.a_watermark])
         self.annotate_button.setMenu(annotations)
         self.annotate_control = toolbar.addWidget(self.annotate_button)
         self.pages_button = QToolButton()
@@ -540,7 +541,7 @@ class MainWindow(QMainWindow):
         if tab:
             if tab.search_model.searchString() != tab._query:
                 self._search_timer.start(180)
-            self.a_undo.setEnabled((tab.editor.can_undo or bool(tab.ink.history) or tab.ink.current is not None) and not preparing)
+            self.a_undo.setEnabled((tab.editor.can_undo or bool(tab.ink.history) or tab.ink.current is not None or tab.signature.dirty) and not preparing)
             self.a_redo.setEnabled((tab.editor.can_redo or bool(tab.ink.future)) and not preparing)
             with QSignalBlocker(self.search):
                 self.search.setText(tab._query)
@@ -596,7 +597,9 @@ class MainWindow(QMainWindow):
         vectors = tab.viewer.vectors
         with QSignalBlocker(self.a_vector):
             self.a_vector.setChecked(vectors.enabled)
-        if not vectors.enabled or tab.page in vectors.failed:
+        if tab.ink.active:
+            text = tr('Disegno')
+        elif not vectors.enabled or tab.page in vectors.failed:
             text = tr("Compatibilità")
         elif tab.page in vectors.cache:
             text = tr("Vettoriale")
@@ -943,6 +946,8 @@ class MainWindow(QMainWindow):
 
     def add_note(self) -> None:
         tab = self.current
+        if tab and not tab.signature.finish():
+            return
         if tab and tab.ink.active and not tab.ink.deactivate():
             return
         if not tab:
@@ -1279,15 +1284,16 @@ class MainWindow(QMainWindow):
     def about(self) -> None:
         QMessageBox.information(
             self, tr("Informazioni su APE PDF Studio"),
-            tr("APE PDF Studio {0}\n"
-            + "\n" + tr("Autore: {0}", "GiancaGIS")
-            + "\n" + "Copyright (C) 2026 GiancaGIS\n"
-            + "\n\n" + "Rendering: tracciati MuPDF / Qt SVG; compatibilità QtPdf (PDFium)\nEditing: pypdf\nInterfaccia: PySide6\n\n"
+            tr("APE PDF Studio {0}\n\n"
+            "Rendering: tracciati MuPDF / Qt SVG; compatibilità QtPdf (PDFium)\nEditing: pypdf\nInterfaccia: PySide6\n\n"
             "Operazioni non distruttive, cronologia Undo/Redo e salvataggio esplicito.\n"
             "Le firme digitali non vengono preservate dalle modifiche ai PDF.", __version__)
+            + "\n\n" + tr("Autore: {0}", "GiancaGIS")
+            + "\n" + "Copyright (C) 2026 GiancaGIS"
             + "\n\n" + tr("Licenza: GNU AGPLv3. Questo programma è distribuito senza garanzie.")
             + "\n" + "Qt/PySide6: LGPLv3 / GPL · PyMuPDF/MuPDF: AGPLv3"
             + "\n" + tr("Testi delle licenze e istruzioni per i sorgenti: Aiuto → Licenze e codice sorgente.")
+            + "\n\n" + tr('Garanzie e responsabilità') + "\n" + software_disclaimer()
         )
 
     def show_licenses(self) -> None:

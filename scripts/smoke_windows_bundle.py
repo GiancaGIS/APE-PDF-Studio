@@ -20,7 +20,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, default=root / "dist/APEPDFStudio")
-    parser.add_argument("--tessdata", type=Path, help="Optional local ita/eng models for a real OCR check")
+    parser.add_argument("--tessdata", type=Path, help="Optional local ita/eng and spa/fra models for real OCR checks")
     parser.add_argument("--shell-host", type=Path, default=root / "build/windows/shell/APEPDFShellSmoke.exe",
                         help="Native registration-free COM test host")
     args = parser.parse_args()
@@ -41,6 +41,40 @@ def main():
     def passed(label):
         checks.append(label)
         print(f"[APE] OK: {label}", flush=True)
+
+    from bundle_integrity import verify_bundle
+    import hashlib
+    manifest_bytes = (bundle/'_internal/ape-integrity.json').read_bytes()
+    sealed = verify_bundle(bundle,hashlib.sha256(manifest_bytes).hexdigest())
+    if not any(name.endswith('.pyd') for name in sealed['files']):
+        raise RuntimeError('Il pacchetto non contiene moduli applicativi compilati.')
+    # Exercise the digest pinned inside the real EXEs, not just this checker.
+    target = next(bundle/name for name in sealed['files'] if name.endswith('.pyd'))
+    for damaged, replacement in ((target,b'changed native module'),
+                                  (bundle/'_internal/ape-integrity.json',b'{}')):
+        original = damaged.read_bytes()
+        try:
+            damaged.write_bytes(replacement)
+            for executable in (cli,worker):
+                rejected = subprocess.run([str(executable),'--help'],capture_output=True,timeout=20,
+                    creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                if rejected.returncode!=78:
+                    raise RuntimeError(f'Alterazione non bloccata prima degli import: {executable.name}')
+        finally:
+            damaged.write_bytes(original)
+    injected = bundle/'_internal/ape_pdf_studio/injected_smoke.py'
+    if injected.exists():
+        raise RuntimeError('Unexpected integrity probe collision')
+    try:
+        injected.write_text('raise RuntimeError("untrusted injected module")')
+        rejected = subprocess.run([str(cli),'--help'],capture_output=True,timeout=20,
+            creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        if rejected.returncode!=78:
+            raise RuntimeError('Modulo aggiunto non bloccato dal launcher')
+    finally:
+        injected.unlink(missing_ok=True)
+    verify_bundle(bundle,hashlib.sha256(manifest_bytes).hexdigest())
+    passed('Moduli PYD e integrità: file alterati, manifesto sostituito e codice aggiunto bloccati dai veri launcher')
 
     from prepare_release import verify_legal
     verify_legal(bundle)
@@ -302,6 +336,34 @@ def main():
             if "Documento italiano" not in text or "English searchable" not in text:
                 raise RuntimeError("Il testo non sopravvive al processo OCR.")
         passed("OCR bilingue reale" if models else "Processo OCR (pagina gia testuale; modelli assenti)")
+
+        for language, expected in (("spa", "Documento español: información y número"),
+                                   ("fra", "Document français : édition et sécurité")):
+            if models is None or not (models / f"{language}.traineddata").is_file():
+                continue  # Recognition checks never download models.
+            localized_source = work / f"scan-{language}.pdf"
+            with pymupdf.open() as document:
+                page = document.new_page(width=500, height=350)
+                page.insert_text((40, 80), expected, fontsize=20)
+                page.insert_text((40, 130), "English searchable document", fontsize=20)
+                localized_pixels = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
+            with pymupdf.open() as document:
+                page = document.new_page(width=500, height=350)
+                page.insert_image(page.rect, pixmap=localized_pixels)
+                document.save(localized_source)
+            original_scan = localized_source.read_bytes()
+            for choice in (language, language + "+eng"):
+                stage_tessdata(choice, models, work / 'tessdata', download=False)
+                request.write_text(json.dumps(dict(source=str(localized_source), destination=str(recognized),
+                    cache_dir=str(work / 'tessdata'), language=choice, download=False)), encoding="utf-8")
+                run("ocr", (request,))
+                with pymupdf.open(recognized) as document:
+                    text = " ".join(document[0].get_text().split())
+                    if expected not in text or ("+eng" in choice and "English searchable document" not in text):
+                        raise RuntimeError(f"Riconoscimento OCR fallito: {choice}")
+            if localized_source.read_bytes() != original_scan:
+                raise RuntimeError("Il processo OCR ha modificato la scansione originale.")
+            passed(f"OCR reale {language}, singolo e bilingue: accenti e originale conservati")
 
         for name in ("modulo_da_preparare.pdf","modulo_da_preparare_scansione.pdf"):
             flat = root / "examples" / name

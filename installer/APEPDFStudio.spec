@@ -4,6 +4,8 @@ from pathlib import Path
 import os
 import sys
 import tomllib
+import hashlib
+import json
 
 from PyInstaller.utils.hooks import copy_metadata, collect_data_files
 
@@ -14,6 +16,14 @@ if not app_icon.is_file():
 project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
 version = project["version"]
 publisher = project["authors"][0]["name"]
+compiled_dir = root / 'build/windows/cython'
+compiled = json.loads((compiled_dir/'compiled-modules.json').read_text(encoding='utf-8'))
+for name, expected in compiled['sources'].items():
+    if hashlib.sha256((root/name).read_bytes()).hexdigest()!=expected:
+        raise RuntimeError('Application changed after PYD compilation: '+name)
+integrity_hook = compiled_dir/'integrity_hook.py'
+if not integrity_hook.is_file():
+    raise RuntimeError('Prepare the compiled application integrity manifest first')
 version_tuple = tuple(int(part) for part in version.split("."))
 version_tuple += (0,) * (4 - len(version_tuple))
 license_file = Path(os.environ.get("APE_LICENSE_FILE", os.environ.get("APEX_LICENSE_FILE", str(root / "LICENSE")))).resolve()
@@ -46,6 +56,7 @@ if not sandbox_exe.is_file():
 if not shell_dll.is_file():
     raise FileNotFoundError("Build the native shell extension with scripts/build_windows_shell.ps1")
 datas += collect_data_files("ape_pdf_studio", includes=["locales/*.json", "assets/*"])
+datas.append((str(compiled_dir/'ape-integrity.json'), '.'))
 datas += collect_data_files("PySide6", includes=[
     "translations/qtbase_" + language + ".qm" for language in ("it", "es", "en", "fr")])
 # Include installed dependency metadata and their license/notice files.
@@ -59,10 +70,16 @@ analysis = Analysis(
     [str(root / "scripts" / name) for name in
      ("gui_launcher.py", "worker_launcher.py", "cli_launcher.py")],
     pathex=[str(root / "src")],
-    binaries=[], datas=datas, hiddenimports=[], hookspath=[], hooksconfig={},
-    runtime_hooks=[], excludes=["PyQt5", "PyQt6", "PySide2", "tkinter", "pytest"],
+    binaries=[], datas=datas, hiddenimports=[name.removesuffix('.__init__') for name in compiled['modules']], hookspath=[], hooksconfig={},
+    runtime_hooks=[str(integrity_hook)], excludes=["PyQt5", "PyQt6", "PySide2", "tkinter", "pytest", "Cython"],
     noarchive=False,
 )
+# Analyze the Python sources for all dependencies, then ship only our native
+# modules. Tiny entry points and the pre-import integrity hook stay in the EXEs.
+analysis.pure = [entry for entry in analysis.pure
+                 if entry[0]!='ape_pdf_studio' and not entry[0].startswith('ape_pdf_studio.')]
+for path in sorted((compiled_dir/'lib/ape_pdf_studio').rglob('*.pyd')):
+    analysis.binaries.append((path.relative_to(compiled_dir/'lib').as_posix(),str(path),'EXTENSION'))
 # PDF image processing does not use OpenCV's optional video codecs. Avoid
 # redistributing its separately licensed, dynamically loaded FFmpeg helper.
 analysis.binaries = [entry for entry in analysis.binaries

@@ -8,6 +8,11 @@ from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QPlainTextEd
 from ..core.localization import tr
 
 
+def software_disclaimer():
+    return (tr('Il software è distribuito "COSÌ COM\'È", SENZA GARANZIE O CONDIZIONI DI ALCUN TIPO, espresse o implicite.')
+            + '\n' + tr('Si applicano le condizioni e le eccezioni previste dalle sezioni 15–17 della GNU AGPLv3.'))
+
+
 def legal_directory():
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent / "licenses"

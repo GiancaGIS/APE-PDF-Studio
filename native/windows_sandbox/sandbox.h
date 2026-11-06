@@ -94,6 +94,9 @@ struct Profile {
 
 inline bool diskBudget(const std::wstring& work,unsigned long long* aggregate=nullptr) {
     try {
+        DWORD rootAttributes=GetFileAttributesW(work.c_str());
+        if (rootAttributes==INVALID_FILE_ATTRIBUTES || !(rootAttributes&FILE_ATTRIBUTE_DIRECTORY) ||
+            (rootAttributes&FILE_ATTRIBUTE_REPARSE_POINT)) return false;
         ULARGE_INTEGER free{};
         if (!GetDiskFreeSpaceExW(work.c_str(),&free,nullptr,nullptr) || free.QuadPart<128ull*1024*1024) return false;
         size_t count=0;unsigned long long bytes=aggregate?*aggregate:0;
@@ -102,10 +105,22 @@ inline bool diskBudget(const std::wstring& work,unsigned long long* aggregate=nu
             if (attributes==INVALID_FILE_ATTRIBUTES && (GetLastError()==ERROR_FILE_NOT_FOUND || GetLastError()==ERROR_PATH_NOT_FOUND)) continue;
             if (attributes==INVALID_FILE_ATTRIBUTES || attributes & FILE_ATTRIBUTE_REPARSE_POINT || ++count>50000) return false;
             if (!(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
-                std::error_code error;auto size=entry.file_size(error);
-                if (error==std::errc::no_such_file_or_directory) continue;
-                if (error) return false;
-                bytes+=size;
+                // A hard link shares its security descriptor with the outside
+                // target. Reject it before inheritable workspace ACLs are set,
+                // and keep checking stable handles while the worker runs.
+                Handle file;
+                file.value=CreateFileW(entry.path().c_str(),FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
+                    FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+                if (file.value==INVALID_HANDLE_VALUE) {
+                    DWORD error=GetLastError();
+                    if (error==ERROR_FILE_NOT_FOUND || error==ERROR_PATH_NOT_FOUND) continue;
+                    return false;
+                }
+                BY_HANDLE_FILE_INFORMATION info{};
+                if (!GetFileInformationByHandle(file.value,&info) || info.nNumberOfLinks!=1 ||
+                    (info.dwFileAttributes&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY))) return false;
+                bytes+=(static_cast<unsigned long long>(info.nFileSizeHigh)<<32)|info.nFileSizeLow;
             }
             if (bytes>1024ull*1024*1024) return false;
         }
@@ -150,6 +165,9 @@ inline int run(const std::wstring& executable, const std::vector<std::wstring>& 
                DWORD timeout, unsigned long long maxOutput) {
     if (timeout < 100 || timeout > 3600000) return 120;
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    // Do not change ACLs or execute even a short-lived worker in an unsafe
+    // workspace. The watchdog alone would leave a window before its first scan.
+    if (!diskBudget(work)) {std::fprintf(stderr,"Sandbox workspace preflight failed\n");return 129;}
     Profile profile;
     if (!profile.initialize()) return 121;
     PSID applications = nullptr;

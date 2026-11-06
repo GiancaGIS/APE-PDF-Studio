@@ -18,15 +18,18 @@ files, with download provenance and SHA-256 checksums in `source-manifest.json`.
 | pdf2docx | MIT for pdf2docx itself. Its use of PyMuPDF remains subject to PyMuPDF's AGPL terms. | https://github.com/ArtifexSoftware/pdf2docx |
 | python-docx | MIT. Retain copyright and permission notice. | https://github.com/python-openxml/python-docx |
 | Tesseract and tessdata_fast | Apache-2.0. OCR models are downloaded from tessdata_fast 4.1.0 and hash-checked. Model licenses and source are included with the release even though model downloads are optional. | https://github.com/tesseract-ocr/tessdata_fast/tree/4.1.0 |
+| Droid Sans Fallback | Apache-2.0; Copyright (c) 2005-2008, The Android Open Source Project. The font supplied by MuPDF is embedded in `examples/complex_cjk.pdf`, together with its copyright notice and license. | https://github.com/ArtifexSoftware/mupdf/tree/master/resources/fonts/droid |
 | CPython | Python Software Foundation license and bundled third-party notices. | https://www.python.org/ |
 | Other Python/native dependencies | Their own licenses, including NumPy, OpenCV, lxml, cryptography and their bundled third-party components. See the release inventory and copied upstream notices. | See dependency-manifest.json |
 | OpenSSL and cryptography's Rust crates | Apache-2.0/BSD and crate-specific terms. Exact native versions and wheel SBOMs are recorded; OpenSSL and registry crate sources are included separately. | https://github.com/pyca/cryptography |
 | OpenBLAS/LAPACK and libxml2/libxslt | Original licenses retained. Includes the OpenBLAS build tag, its exact upstream commit, and the native XML/XSLT source versions used by lxml. | See source-manifest.json |
 | PyInstaller | GPL with a bootloader exception allowing distribution under the application's license. Its source/build files accompany the release. | https://pyinstaller.org/en/stable/license.html |
+| Cython | Apache-2.0 compiler; generated runtime utility code retains its applicable upstream notices. Exact compiler source and license accompany the build/source distribution. Cython itself is not required at application runtime. | https://github.com/cython/cython |
 
-No third-party source was intentionally modified for the release. Upstream
-archives are preserved without modification. The manifests identify the
-versions; they must be regenerated when dependencies change.
+Original upstream archives are preserved without modification. The corrected
+PyMuPDF/MuPDF build is derived using `scripts/prepare_patched_mupdf.py` and
+`scripts/build_patched_mupdf.ps1`; the manifests record its versions and
+derivation. Regenerate the manifests when dependencies change.
 
 OpenCV's optional `opencv_videoio_ffmpeg*.dll` video helper is excluded from
 the Windows bundle: the application uses OpenCV for PDF images, not video.
