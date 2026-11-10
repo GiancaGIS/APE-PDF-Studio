@@ -34,6 +34,7 @@ from ..core.editor import PDFOperationError, PDFPasswordRequired, parse_page_ran
 from .document_tab import DocumentTab
 from .document_tabs import DocumentTabs
 from .exports import DocxExportJob, export_page_image
+from .compression import CompressionDialog, CompressedPdfExportJob
 from .icons import application_icon, icon
 from .page_number import PageNumberEdit
 from .settings_dialog import SettingsDialog
@@ -68,6 +69,7 @@ class MainWindow(QMainWindow):
         self._doc_actions: list[QAction] = []
         self._edit_actions: list[QAction] = []
         self._export_job = None
+        self._compression_job = None
         self._ocr_job = None
         self._ocr_tab = None
         self._page_context = None
@@ -204,6 +206,7 @@ class MainWindow(QMainWindow):
         self.a_split = self._action(tr("Dividi PDF…"), self.split_pdf, edit=True)
         self.a_export_image = self._action(tr("Esporta pagina come immagine…"), self.export_image, edit=True)
         self.a_export_docx = self._action(tr("Esporta tutto il PDF in Word…"), self.export_docx, edit=True)
+        self.a_export_compressed = self._action(tr('Esporta PDF compresso…'), self.export_compressed, edit=True)
         self.a_exit = self._action(tr("Esci"), self.close, "Ctrl+Q")
         self.a_undo = self._action(tr("Annulla modifica"), self.undo, "Ctrl+Z", edit=True)
         self.a_redo = self._action(tr("Ripristina modifica"), self.redo, "Ctrl+Y", edit=True)
@@ -262,7 +265,7 @@ class MainWindow(QMainWindow):
         for a in (self.a_open, self.a_close, self.a_save_current, self.a_save, self.a_extract, self.a_split, self.a_print, self.a_info, self.a_exit):
             menu_file.addAction(a)
         exports = QMenu(tr("Esporta"), menu_file)
-        exports.addActions([self.a_export_image, self.a_export_docx])
+        exports.addActions([self.a_export_compressed, self.a_export_image, self.a_export_docx])
         menu_file.insertMenu(self.a_info, exports)
         menu_edit = self.menuBar().addMenu(tr("Modifica"))
         for a in (self.a_undo, self.a_redo, self.a_rotate, self.a_rotate_ccw,
@@ -531,6 +534,7 @@ class MainWindow(QMainWindow):
                 action.setEnabled(False)
             self.a_form.setEnabled(False)
         self.a_export_docx.setEnabled(tab is not None and not tab.editor.encrypted and self._export_job is None and not preparing)
+        self.a_export_compressed.setEnabled(tab is not None and not tab.editor.encrypted and self._compression_job is None and not preparing)
         self.a_ocr.setEnabled(tab is not None and not tab.editor.encrypted and self._ocr_job is None and not preparing)
         self.search.setEnabled(tab is not None)
         self.page_spin.setEnabled(tab is not None)
@@ -771,6 +775,10 @@ class MainWindow(QMainWindow):
             self.close_tab(self.tabs.currentIndex())
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self._compression_job is not None:
+            event.ignore()
+            self.statusBar().showMessage(tr('Attendi la compressione PDF oppure premi Annulla nella finestra di avanzamento.'))
+            return
         if self._ocr_job is not None:
             event.ignore()
             self.statusBar().showMessage(tr("Attendi l'OCR oppure premi Annulla nella finestra di avanzamento."))
@@ -1134,6 +1142,72 @@ class MainWindow(QMainWindow):
         if self._output_available(path, tab) and self._confirm_overwrite(path):
             self._run(lambda: export_page_image(tab.pdf, page, path, dpi), tr('Pagina {0} esportata in {1}', page + 1, path),
                       output=path, notification=tr("Immagine esportata"))
+
+    def export_compressed(self) -> None:
+        tab = self.current
+        if not tab or tab.editor.encrypted or self._compression_job is not None or not tab.finish_form():
+            return
+        dialog = CompressionDialog(self)
+        try:
+            if not dialog.exec():
+                return
+            level = dialog.slider.value()
+        finally:
+            dialog.deleteLater()
+        destination, _ = QFileDialog.getSaveFileName(
+            self, tr('Esporta PDF compresso'), self._choose_output_name(tab.editor.output_path, '_compressed'),
+            tr('Documenti PDF (*.pdf)'), options=QFileDialog.Option.DontConfirmOverwrite)
+        if not destination:
+            return
+        path = self._pdf_output(destination)
+        if any(same_file(path, original) for original in (tab.editor.source, tab.editor.output_path)):
+            QMessageBox.warning(self, tr('Esporta PDF compresso'), tr('La compressione richiede una nuova copia PDF.'))
+            return
+        if not self._output_available(path, tab) or not self._confirm_overwrite(path):
+            return
+        try:
+            job = CompressedPdfExportJob(tab.editor.path, path, level, self, zone=tab.editor._zone,
+                                         protected_paths=(tab.editor.source, tab.editor.output_path))
+        except (OSError, PDFOperationError) as exc:
+            QMessageBox.warning(self, tr('Esporta PDF compresso'), str(exc))
+            return
+        self._compression_job = job
+        progress = QProgressDialog(tr('Preparazione della copia compressa…'), tr('Annulla'), 0, 4, self)
+        progress.setWindowTitle(tr('Esporta PDF compresso'))
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumWidth(460)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.setValue(0)
+        progress.canceled.connect(job.cancel)
+        job.progress.connect(lambda done, total, label: (progress.setMaximum(total + 1),
+                                                        progress.setValue(done), progress.setLabelText(label)))
+        job.succeeded.connect(self._pdf_compressed)
+        job.failed.connect(lambda message: QMessageBox.warning(self, tr('Esporta PDF compresso'), message))
+        job.cancelled.connect(lambda: self.statusBar().showMessage(tr('Compressione PDF annullata'), 7000))
+        def finish():
+            progress.close()
+            progress.deleteLater()
+            self._compression_job = None
+            self._update_state()
+            job.deleteLater()
+        job.finished.connect(finish)
+        self._update_state()
+        job.start()
+
+    def _pdf_compressed(self, path, result):
+        before, after = result['before'], result['after']
+        saved = (before - after) * 100 / before
+        detail = tr('{0} → {1} · risparmio {2}%', self._file_size(before), self._file_size(after), f'{saved:.1f}')
+        if before == after:
+            detail += tr(' · PDF già ottimizzato: dimensione invariata.')
+        self.statusBar().showMessage(detail, 10000)
+        self.toast.show_completion(tr('PDF compresso esportato'), path, detail)
+
+    @staticmethod
+    def _file_size(size):
+        return f'{size / (1024 * 1024):.2f} MiB' if size >= 1024 * 1024 else f'{size / 1024:.1f} KiB'
 
     def export_docx(self) -> None:
         tab = self.current

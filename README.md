@@ -31,7 +31,7 @@
 | **Editing** | Rotate, reorder, insert, delete, and extract pages; split PDFs by page, every N pages, or custom ranges; add notes, highlights, and underlines; replace supported existing text spans. |
 | **PDF forms** | Fill static AcroForm text, checkboxes, radio groups and choices; save editable fields and undo or redo changes. |
 | **Searchable scans** | Recognize Italian, English, Spanish or French with local OCR and an invisible text layer. |
-| **Exporting** | Save pages as PNG/JPEG or convert the complete PDF to an editable Word document. |
+| **Exporting** | Export a compressed PDF with adjustable image quality, save pages as PNG/JPEG or convert the complete PDF to an editable Word document. |
 | **Printing** | Preview paper size, scaling, margins, copies, and duplex options, or create a print-ready PDF copy. |
 | **Making it yours** | Choose a color theme and an Italian, Spanish, English, or French interface. |
 
@@ -202,7 +202,26 @@ Results are applied only after the entire operation succeeds, as **one undoable 
 
 Recognition quality depends on scan clarity and orientation. Blank pages and pages with no recognized words are reported in the summary. OCR does not automatically deskew or rotate scans and does not rebuild a Word-style layout.
 
-## Exporting images and Word documents
+## Exporting compressed PDFs, images and Word documents
+
+### Compressed PDF
+
+**File → Export → Export compressed PDF** creates a separate copy of the current
+revision, including pending form, text and drawing edits. The compression slider
+ranges from **0 (lossless optimization)** to **100 (smaller images)**; the default
+is **40**, targeting 228 dpi and JPEG quality 85. Higher settings gradually reach
+120 dpi and quality 70. Images are downsampled only above 125% of the target DPI;
+bitonal images retain their original pixels and resolution.
+
+Text and vector graphics are not rasterized. Forms, annotations, bookmarks and
+metadata are retained. Rewriting a PDF can invalidate digital signatures and
+PDF/A compliance; the settings dialog displays this warning. Compression runs
+locally in the isolated worker and can be cancelled. The result shows the original
+and exported sizes and the saving percentage. Already optimized PDFs may not
+shrink: the smallest of the original, lossless and image-compressed versions is
+exported, so the copy never grows. The original and revision history remain
+unchanged, edits are not marked as saved, and failure/cancellation preserves an
+existing destination. Encrypted documents remain read-only.
 
 ### Page images
 

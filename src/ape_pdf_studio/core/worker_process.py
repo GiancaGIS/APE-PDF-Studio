@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-WORKERS = {"security": "security_worker", "vector": "vector_worker", "docx": "docx_export", "ocr": "ocr", "shell": "shell_worker", "form_detect": "form_detect_worker", "rpc": "rpc_worker"}
+WORKERS = {"security": "security_worker", "vector": "vector_worker", "docx": "docx_export", "compress": "pdf_compression", "ocr": "ocr", "shell": "shell_worker", "form_detect": "form_detect_worker", "rpc": "rpc_worker"}
 
 
 def worker_command(kind: str, *arguments: str) -> list[str]:

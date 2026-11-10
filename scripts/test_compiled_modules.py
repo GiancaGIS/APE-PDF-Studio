@@ -27,6 +27,14 @@ from PySide6.QtCore import QSettings
 import tempfile
 with tempfile.TemporaryDirectory(dir=root/'build',prefix='compiled-qt-') as temporary:
     app=QApplication([])
+    from ape_pdf_studio.core.pdf_compression import compression_profile
+    from ape_pdf_studio.ui.compression import CompressionDialog
+    assert compression_profile(0) is None
+    assert compression_profile(40)==dict(quality=85,dpi_target=228)
+    compression=CompressionDialog()
+    assert compression.slider.value()==40
+    compression.close()
+    compression.deleteLater()
     QSettings.setDefaultFormat(QSettings.Format.IniFormat)
     QSettings.setPath(QSettings.Format.IniFormat,QSettings.Scope.UserScope,temporary)
     window=MainWindow()
