@@ -94,11 +94,17 @@ def assert_exited(pid):
         kernel.CloseHandle(handle)
 
 
-def test_actual_token_job_and_mitigations(boundary):
+def test_actual_token_job_and_mitigations(boundary, record_testsuite_property):
     with PrivateDirectory() as work:
         data = record(boundary.run(work, "info"))
+    record_testsuite_property("sandbox_token", json.dumps(data, sort_keys=True))
     assert data["appcontainer"] == 1 and data["capabilities"] == 0
-    assert data["elevated"] == 0 and data["integrity"] <= 0x1000
+    # UAC elevation and AppContainer confinement are orthogonal. An elevated
+    # Windows CI host can leave TokenElevation set on a low-integrity LowBox
+    # token. Check actual restrictions, including privileges even if disabled.
+    assert data["integrity"] <= 0x1000, data
+    assert data["ui_access"] == 0 and data["mandatory_policy"] & 1, data  # No-write-up.
+    assert set(data["privileges"]) <= {"SeChangeNotifyPrivilege", "SeIncreaseWorkingSetPrivilege"}, data
     assert data["in_job"] == 1 and data["active_process_limit"] == 1
     assert data["job_memory"] == data["process_memory"] == 768 * 1024 * 1024
     flags = 0x2000 | 0x100 | 0x200 | 0x8 | 0x4  # Kill-on-close, process/job RAM, active count, CPU time.

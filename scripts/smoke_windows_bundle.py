@@ -313,6 +313,18 @@ def main():
             raise RuntimeError("Esportazione Word fallita.")
         passed("Esportazione Word")
 
+        compressed = work / 'compressed.pdf'
+        original_bytes = source.read_bytes()
+        output = run('compress', (source, compressed, '40'))
+        if not compressed.is_file() or b'"result"' not in output or compressed.stat().st_size > len(original_bytes):
+            raise RuntimeError('Esportazione PDF compresso fallita.')
+        with PdfReader(compressed) as document:
+            if len(document.pages) != 1 or 'English searchable document' not in document.pages[0].extract_text():
+                raise RuntimeError('Contenuto del PDF compresso non conservato.')
+        if source.read_bytes() != original_bytes:
+            raise RuntimeError('La compressione ha modificato il PDF originale.')
+        passed('Esportazione PDF compresso: worker isolato, testo conservato, originale invariato')
+
         ocr_source = source
         if models is not None:
             ocr_source = work / "scan.pdf"

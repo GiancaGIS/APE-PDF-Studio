@@ -54,9 +54,25 @@ static bool sameFileHandle(HANDLE handle, DWORD volume, DWORD high, DWORD low) {
 static int information() {
     Handle token;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token.value)) return 3;
-    DWORD length = 0, container = 0, elevation = 0;
+    DWORD length = 0, container = 0, elevation = 0, uiAccess = 0;
+    TOKEN_MANDATORY_POLICY policy{};
     if (!GetTokenInformation(token.value, TokenIsAppContainer, &container, sizeof(container), &length) ||
-        !GetTokenInformation(token.value, TokenElevation, &elevation, sizeof(elevation), &length)) return 3;
+        !GetTokenInformation(token.value, TokenElevation, &elevation, sizeof(elevation), &length) ||
+        !GetTokenInformation(token.value, TokenUIAccess, &uiAccess, sizeof(uiAccess), &length) ||
+        !GetTokenInformation(token.value, TokenMandatoryPolicy, &policy, sizeof(policy), &length)) return 3;
+    GetTokenInformation(token.value, TokenPrivileges, nullptr, 0, &length);
+    std::vector<BYTE> privileges(length);
+    if (!GetTokenInformation(token.value, TokenPrivileges, privileges.data(), length, &length)) return 3;
+    auto tokenPrivileges = reinterpret_cast<TOKEN_PRIVILEGES*>(privileges.data());
+    // Enumerate disabled privileges too: they must not be available to enable
+    // later. TokenElevation alone does not describe AppContainer confinement.
+    std::vector<std::pair<std::wstring, DWORD>> privilegeNames;
+    for (DWORD i = 0; i < tokenPrivileges->PrivilegeCount; ++i) {
+        auto& privilege = tokenPrivileges->Privileges[i];
+        wchar_t name[256]{}; DWORD characters = ARRAYSIZE(name);
+        if (!LookupPrivilegeNameW(nullptr, &privilege.Luid, name, &characters)) return 3;
+        privilegeNames.emplace_back(name, privilege.Attributes);
+    }
     GetTokenInformation(token.value, TokenCapabilities, nullptr, 0, &length);
     std::vector<BYTE> capabilities(length);
     if (!GetTokenInformation(token.value, TokenCapabilities, capabilities.data(), length, &length)) return 3;
@@ -91,7 +107,14 @@ static int information() {
         job.BasicLimitInformation.ActiveProcessLimit, static_cast<unsigned long long>(job.ProcessMemoryLimit),
         static_cast<unsigned long long>(job.JobMemoryLimit), job.BasicLimitInformation.PerJobUserTimeLimit.QuadPart,
         dep.Enable, extensions.DisableExtensionPoints);
-    jsonString(sidText); std::puts("}"); LocalFree(sidText); return 0;
+    jsonString(sidText); LocalFree(sidText);
+    std::printf(",\"ui_access\":%lu,\"mandatory_policy\":%lu,\"privileges\":{", uiAccess, policy.Policy);
+    bool first = true;
+    for (const auto& privilege : privilegeNames) {
+        if (!first) std::putchar(','); first = false;
+        jsonString(privilege.first.c_str()); std::printf(":%lu", privilege.second);
+    }
+    std::puts("}}"); return 0;
 }
 
 static int files(const wchar_t* foreign, const wchar_t* code) {

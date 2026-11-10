@@ -37,6 +37,9 @@ def main() -> int:
     if kind == "docx":
         from .docx_export import main as run
         return run()
+    if kind == "compress":
+        from .pdf_compression import main as run
+        return run()
     if kind == "ocr":
         from .ocr import main as run
         return run()
