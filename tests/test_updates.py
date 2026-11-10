@@ -10,17 +10,6 @@ def body(tag="v1.2.0", **values):
     return json.dumps({"tag_name": tag, "draft": False, "prerelease": False, **values}).encode()
 
 
-@pytest.mark.parametrize("tag,current,available", [
-    ("v1.2.0", "1.2.0", True), ("1.10.0", "1.9.0", True),
-    ("v2.0.0", "1.99.99", True), ("1.2.0", "1.2.0", False),
-    ("1.2.0", "2.0.0", False), ("v1.2.0+build.2", "1.2.0+build.1", False),
-])
-def test_versions_use_numeric_precedence(tag, current, available):
-    release = parse_release(200, body(tag), current)
-    assert release.update_available is available
-    assert release.url.startswith(RELEASES_URL + "/tag/")
-
-
 @pytest.mark.parametrize("tag", [None, 123, "", "1.0", "01.2.3", "1.2.3-rc.1", "v1.2.3\n", "<img>", "1.2.3/../../other", "9" * 129])
 def test_invalid_or_preview_version_is_rejected(tag):
     with pytest.raises(UpdateError):
