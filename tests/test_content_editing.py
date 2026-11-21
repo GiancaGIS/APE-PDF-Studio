@@ -93,7 +93,10 @@ def test_text_replacement_after_crop_rotation_userunit_preserves_neighbours_and_
     with pymupdf.open(editor.path) as doc:
         span = doc[0].get_text("dict")["blocks"][0]["lines"][0]["spans"][0]
         point = pymupdf.Rect(span["bbox"]).tl + (3, 3)
-        point *= doc[0].rotation_matrix
+        matrix = doc[0].rotation_matrix
+        matrix.e *= unit
+        matrix.f *= unit
+        point *= matrix
         before = doc[0].get_drawings()
     target = editor.text_at(0, (point.x, point.y))
     editor.replace_text(target, "New phrase")

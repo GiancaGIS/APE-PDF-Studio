@@ -15,6 +15,8 @@ def software_disclaimer():
 
 def legal_directory():
     if getattr(sys, "frozen", False):
+        if sys.platform != 'win32':
+            return Path(sys._MEIPASS) / 'legal'
         return Path(sys.executable).parent / "licenses"
     project = Path(__file__).resolve().parents[3]
     if (project / "NOTICE").is_file() and (project / "LICENSE").is_file():

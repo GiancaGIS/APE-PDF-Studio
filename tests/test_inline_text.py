@@ -40,6 +40,7 @@ def test_mode_boxes_click_type_enter_and_history(window, text_pdf):
     assert inline.dirty and tab.dirty and not tab.editor.dirty
     assert window.tabs.tabText(window.tabs.indexOf(tab)).endswith(" *")
     QTest.keyClick(inline.control, Qt.Key.Key_Return)
+    wait_for(lambda: not inline.committing, timeout=10000)
     assert inline.control is None and inline.active
     assert "Edited on page" in tab.pdf.getAllText(0).text()
     assert "Second line" in tab.pdf.getAllText(0).text()
@@ -68,11 +69,13 @@ def test_invalid_draft_stays_visible_and_escape_discards(window):
     revision = tab.editor.path
     inline.control.setText("far too long " * 100)
     assert not inline.deactivate()
+    wait_for(lambda: not inline.committing, timeout=10000)
     assert inline.active and inline.control is not None and inline.feedback.text()
     assert tab.editor.path == revision
     window.a_edit_text.trigger()
     assert inline.active and window.a_edit_text.isChecked()
     assert not window._confirm_close(tab)
+    wait_for(lambda: not inline.committing, timeout=10000)
     QTest.keyClick(inline.control, Qt.Key.Key_Escape)
     assert inline.control is None and not tab.dirty and inline.active
     QTest.keyClick(tab.viewer, Qt.Key.Key_Escape)
@@ -84,11 +87,12 @@ def test_clicking_another_span_commits_the_first_draft(window):
     inline.control.setText("First edited")
     point = tab.viewer.page_transform(0).map(QPointF(60, 128)).toPoint()
     QTest.mouseClick(tab.viewer.viewport(), Qt.MouseButton.LeftButton, pos=point)
-    wait_for(lambda: inline.control is not None, timeout=10000)
+    wait_for(lambda: inline.control is not None and inline.control.text() == "Second line for selection", timeout=10000)
     assert inline.control.text() == "Second line for selection"
     assert "First edited" in tab.pdf.getAllText(0).text()
     inline.control.setText("Second edited")
-    assert inline.finish()
+    assert not inline.finish()
+    wait_for(lambda: not inline.committing, timeout=10000)
     text = tab.pdf.getAllText(0).text()
     assert "First edited" in text and "Second edited" in text
 
@@ -155,6 +159,7 @@ def test_extract_includes_the_current_text_draft(window, tmp_path, monkeypatch):
     monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("1", True))
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(output), ""))
     window.extract_pages()
+    wait_for(output.exists, timeout=10000)
     with PdfReader(output) as reader:
         assert len(reader.pages) == 1 and "Extracted draft" in reader.pages[0].extract_text()
     assert inline.control is None and tab.editor.dirty

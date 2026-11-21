@@ -5,7 +5,7 @@ import re
 
 def test_property_sheet_registration_is_independent_and_owns_only_its_keys():
     root = Path(__file__).resolve().parents[1]
-    source = (root / "installer/APEPDFStudio.iss").read_text(encoding="utf-8")
+    source = (root / "build_tools/windows/APEPDFStudio.iss").read_text(encoding="utf-8")
     guid = re.search(r'#define MetadataGuid "([A-F0-9-]+)"', source)[1]
     native = (root / "native/windows_shell/shell_ids.h").read_text(encoding="utf-8")
     parts = re.findall(r"0x([a-f0-9]+)", native.split("CLSID_APEMetadata =", 1)[1])

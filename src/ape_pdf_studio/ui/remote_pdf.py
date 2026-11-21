@@ -97,6 +97,12 @@ class RemoteDocument(QObject):
         self.source=None;self.sizes=[];self.bookmarks=[]
         self._status=self.Status.Null
         self.statusChanged.emit(self._status)
+    def adopt_content_revision(self,path):
+        # A text-only revision has the same page table and bookmarks. The
+        # renderer opens and prepares the new revision on its background tasks.
+        self.source=self.editor.checked_path(Path(path))
+        self.setProperty('origin_path',str(self.source))
+        self.statusChanged.emit(self._status)
     def render(self,page,size,options=None,*,hide_ink=False):
         width,height=size.width(),size.height()
         if not 0<=page<self.pageCount() or not 0<width<=40000 or not 0<height<=40000 or width*height>40000000:
@@ -263,6 +269,7 @@ class RemotePdfView(QAbstractScrollArea):
     documentChanged=Signal(object)
     zoomFactorChanged=Signal(float)
     zoomModeChanged=Signal(object)
+    viewportResized=Signal()
     def __init__(self,parent=None):
         super().__init__(parent)
         self._document=None;self._search=None;self._factor=1.;self._zoom=self.ZoomMode.FitInView
@@ -299,8 +306,18 @@ class RemotePdfView(QAbstractScrollArea):
     def documentMargins(self):return self._margins
     def setPageSpacing(self,spacing):self._spacing=spacing;self._layout_pages()
     def pageSpacing(self):return self._spacing
-    def resizeEvent(self,event):super().resizeEvent(event);self._layout_pages()
-    def _layout_pages(self):
+    def resizeEvent(self, event):
+        anchor = None
+        if geometry := getattr(self, "_geometry", None):
+            page = self._navigator.currentPage()
+            old_rect = geometry.get(page)
+            if old_rect and old_rect.height():
+                anchor = page, (self.verticalScrollBar().value() - old_rect.top()) / old_rect.height()
+        super().resizeEvent(event)
+        self._layout_pages(anchor)
+        self.viewportResized.emit()
+
+    def _layout_pages(self, anchor=None):
         if self._laying_out or not hasattr(self,'_geometry_key'):return
         self._laying_out=True
         try:
@@ -312,6 +329,11 @@ class RemotePdfView(QAbstractScrollArea):
             self.verticalScrollBar().setRange(0,max(0,math.ceil(height-self.viewport().height())))
             self.horizontalScrollBar().setPageStep(self.viewport().width())
             self.verticalScrollBar().setPageStep(self.viewport().height())
+            if anchor is not None:
+                page, offset = anchor
+                rect = rects.get(page)
+                if rect is not None:
+                    self.verticalScrollBar().setValue(round(rect.top() + offset * rect.height()))
             self.viewport().update()
         finally:self._laying_out=False
     def _scrolled(self):

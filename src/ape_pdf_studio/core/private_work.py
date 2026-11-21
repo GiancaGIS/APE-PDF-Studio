@@ -1,8 +1,10 @@
 """Private leased workspaces, conservative stale cleanup and disk budgets."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import ctypes
 import hashlib
+import logging
 import os
 from pathlib import Path
 import re
@@ -16,6 +18,7 @@ MAX_DOCUMENT_BYTES = 1024 * 1024 * 1024
 MAX_SESSION_BYTES = 4 * MAX_DOCUMENT_BYTES
 MIN_FREE_BYTES = 128 * 1024 * 1024
 ROOT_NAME = "APE-PDF-Studio-Sessions"
+_cleanup_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pdf-cleanup")
 
 
 def private_acl(path):
@@ -199,10 +202,19 @@ class PrivateDirectory:
                 if attempt==19:
                     # A terminating renderer/AV may briefly retain a handle. The
                     # directory remains private and leased cleanup retries later.
-                    import logging
                     logging.getLogger(__name__).warning('Private PDF workspace pending cleanup')
                     return
                 time.sleep(.05)
+
+    def cleanup_in_background(self):
+        """Release a retired workspace without blocking the window's event loop."""
+        def clean():
+            try:
+                self.cleanup()
+            except OSError:
+                logging.getLogger(__name__).warning('Private PDF workspace pending cleanup')
+
+        _cleanup_executor.submit(clean)
 
     def __enter__(self):
         return self.name

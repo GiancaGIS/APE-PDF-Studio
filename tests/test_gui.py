@@ -544,6 +544,60 @@ def test_document_notices_follow_original_after_edit_save_undo(window, tmp_path,
     assert "dichiarato" in tab.notice.text.text()
 
 
+def test_signature_banner_opens_summary_and_certificate(window, tmp_path, monkeypatch):
+    from test_document_info import add_signature, certificate_fixture
+    from ape_pdf_studio.ui.signature_dialogs import CertificateDialog, SignatureSummaryDialog
+
+    assert window.current.notice.signature_button.isHidden()
+    cms, _, _ = certificate_fixture()
+    writer = PdfWriter()
+    writer.add_blank_page(400, 600)
+    add_signature(writer, field_name="Missing certificate")
+    add_signature(writer, field_name="Signed approval", contents=cms)
+    path = tmp_path / "signed.pdf"
+    writer.write(path)
+    window.open_pdf(path)
+    tab = window.current
+    assert tab.notice.signature_button.isVisible()
+    viewed = []
+
+    def inspect_certificate(dialog):
+        dialog.show()
+        wait_for(lambda: dialog.status.text() != "Lettura del certificato incorporato…", timeout=10000)
+        viewed.append(dialog.certificates)
+        if dialog.certificates:
+            assert dialog.details.isVisible()
+            assert dialog.values[0].text() == "CN=Embedded PDF Signer"
+            assert dialog.values[1].text() == "CN=Test Certificate Authority"
+            assert "2030-01-01" in dialog.values[3].text()
+            dialog.selection.setCurrentIndex(1)
+            assert dialog.values[0].text() == "CN=Test Certificate Authority"
+            assert "non determinata" in dialog.association.text()
+        else:
+            assert "Nessun certificato" in dialog.status.text()
+        dialog.reject()
+        return dialog.result()
+
+    def inspect_summary(dialog):
+        dialog.show()
+        assert dialog.selection.count() == 2
+        dialog.selection.setCurrentIndex(dialog.selection.findText("Signed approval", Qt.MatchFlag.MatchEndsWith))
+        assert dialog.values[0].text() == "Signed approval"
+        assert dialog.values[1].text() == "Test Signer"
+        assert dialog.values[2].text() == "2026-11-21 12:00:00+01:00"
+        dialog.certificate_button.click()
+        dialog.selection.setCurrentIndex(dialog.selection.findText("Missing certificate", Qt.MatchFlag.MatchEndsWith))
+        dialog.certificate_button.click()
+        dialog.reject()
+        return dialog.result()
+
+    monkeypatch.setattr(CertificateDialog, "exec", inspect_certificate)
+    monkeypatch.setattr(SignatureSummaryDialog, "exec", inspect_summary)
+    tab.notice.signature_button.click()
+    assert [len(certificates) for certificates in viewed] == [2, 0]
+    assert not tab.editor.dirty
+
+
 @pytest.mark.parametrize("extension", [".png", ".jpg"])
 def test_export_current_page_image_with_rotation_markup_and_dpi(window, tmp_path, extension):
     tab = window.current
@@ -1208,6 +1262,41 @@ def test_close_stops_vector_worker_before_revision_cleanup(window):
     assert process.state() == QProcess.ProcessState.NotRunning
 
 
+@pytest.mark.parametrize("whole_window", [False, True])
+def test_close_does_not_wait_for_workspace_cleanup(window, monkeypatch, whole_window):
+    from threading import Event
+
+    editor = window.current.editor
+    process = editor._process
+    workspace = editor._root
+    real_cleanup = editor._temp.cleanup
+    started, release, finished, timed_out = (Event() for _ in range(4))
+
+    def delayed_cleanup():
+        started.set()
+        if not release.wait(5):
+            timed_out.set()
+        try:
+            real_cleanup()
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(editor._temp, "cleanup", delayed_cleanup)
+    try:
+        if whole_window:
+            assert window.close()
+        else:
+            window.close_current()
+        assert window.tabs.count() == 0
+        wait_for(started.is_set)
+        assert process.poll() is not None
+        assert workspace.is_dir() and not finished.is_set() and not timed_out.is_set()
+    finally:
+        release.set()
+        wait_for(finished.is_set, timeout=10000)
+    assert not workspace.exists()
+
+
 def test_completion_toast_keeps_focus_repositions_and_dismisses(window, tmp_path):
     window.search.setFocus()
     focus = QApplication.focusWidget()
@@ -1322,7 +1411,9 @@ def test_direct_text_context_edit_updates_search_save_and_undo(window, tmp_path,
     assert "Alpha beta PDF" in inline.control.text()
     assert inline.control.parentWidget() is tab.viewer.viewport()
     inline.control.setText("Testo corretto")
-    assert inline.finish()
+    assert not inline.finish()
+    wait_for(lambda: not inline.committing, timeout=10000)
+    assert inline.control is None, inline.feedback.text()
     assert "Testo corretto" in tab.pdf.getAllText(0).text()
     assert "Alpha beta PDF" not in tab.pdf.getAllText(0).text()
     assert "Second line" in tab.pdf.getAllText(0).text()

@@ -7,6 +7,7 @@ from ..core.errors import PDFOperationError
 from ..core.ink import MAX_POINTS, MAX_STROKES
 from ..core.ink_geometry import cut_paths, segments
 from ..core.localization import tr
+from .document_tools import EditProgress
 from .icons import pen_cursor, eraser_cursor
 from .ink_toolbar import DrawingToolbar
 from .theme import theme_color
@@ -34,6 +35,7 @@ class InkController(QObject):
         super().__init__(tab)
         self.tab, self.view = tab, tab.viewer
         self.active = False
+        self._committing = False
         self.pending, self.records = [], []
         self.edits = {}
         self.history, self.future = [], []
@@ -135,16 +137,21 @@ class InkController(QObject):
             self.tab.message.emit(tr('Alcuni disegni complessi non sono selezionabili.'))
 
     def finish(self):
+        if self._committing:
+            return False
         self._end_stroke()
         self._end_erase()
         if not self.pending and not self.edits:
             return True
+        scroll = (self.view.horizontalScrollBar().value(), self.view.verticalScrollBar().value())
+        deleted = [list(key) for key, value in self.edits.items() if value is None]
+        replaced = [dict(page=row['page'], index=row['index'], paths=row['paths'], smooth=row['smooth'])
+                    for row in self.edits.values() if row is not None]
+        args = (list(self.pending), deleted, str(self.tab.editor.path), replaced)
+        progress = EditProgress(self.tab.editor, 'update_ink', args, self.tab)
+        self._committing = True
         try:
-            scroll = (self.view.horizontalScrollBar().value(), self.view.verticalScrollBar().value())
-            deleted = [list(key) for key, value in self.edits.items() if value is None]
-            replaced = [dict(page=row['page'], index=row['index'], paths=row['paths'], smooth=row['smooth'])
-                        for row in self.edits.values() if row is not None]
-            self.tab.editor.update_ink(self.pending, deleted, str(self.tab.editor.path), replaced)
+            progress.execute()
             self.tab._reload(self.tab.page)
             self.view.horizontalScrollBar().setValue(scroll[0])
             self.view.verticalScrollBar().setValue(scroll[1])
@@ -154,6 +161,9 @@ class InkController(QObject):
         except PDFOperationError as exc:
             self.tab.message.emit(str(exc))
             return False
+        finally:
+            self._committing = False
+            progress.deleteLater()
 
     def _state(self):
         return list(self.pending), dict(self.edits)

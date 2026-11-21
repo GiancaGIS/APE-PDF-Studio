@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=APE PDF Studio
+Comment=View and edit PDF documents locally
+Exec=ape-pdf-studio %F
+Icon=it.giancagis.apepdfstudio
+Terminal=false
+Categories=Office;Viewer;
+MimeType=application/pdf;

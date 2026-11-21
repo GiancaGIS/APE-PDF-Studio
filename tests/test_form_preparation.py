@@ -14,7 +14,7 @@ from ape_pdf_studio.core.form_detector import detect_fields
 from ape_pdf_studio.core.worker_process import worker_command
 from test_pdf_forms import form_pdf
 
-spec = importlib.util.spec_from_file_location('generate_form_preparation_example', Path(__file__).resolve().parents[1]/'scripts/generate_form_preparation_example.py')
+spec = importlib.util.spec_from_file_location('generate_form_preparation_example', Path(__file__).resolve().parents[1]/'scripts/examples/generate_form_preparation_example.py')
 generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
 

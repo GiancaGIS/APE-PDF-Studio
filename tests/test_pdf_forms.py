@@ -10,7 +10,7 @@ from ape_pdf_studio.core.editor import PDFEditor
 from ape_pdf_studio.core.errors import PDFOperationError
 from ape_pdf_studio.core.pdf_forms import read_fields
 
-spec = importlib.util.spec_from_file_location("generate_form_example", Path(__file__).resolve().parents[1] / "scripts/generate_form_example.py")
+spec = importlib.util.spec_from_file_location("generate_form_example", Path(__file__).resolve().parents[1] / "scripts/examples/generate_form_example.py")
 generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
 

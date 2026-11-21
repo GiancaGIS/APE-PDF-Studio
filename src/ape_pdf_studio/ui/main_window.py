@@ -243,6 +243,7 @@ class MainWindow(QMainWindow):
         self.a_highlight = self._action(tr("Evidenzia"), lambda: self.markup("highlight"), edit=True)
         self.a_underline = self._action(tr("Sottolinea"), lambda: self.markup("underline"), edit=True)
         self.a_sidebar = self._action(tr("Pannello laterale"), self.toggle_sidebar, doc=True)
+        self.a_reunite_tabs = self._action(tr("Riunisci tutte le schede"), self.tabs.reunite)
         self.a_info = self._action(tr("Proprietà documento…"), lambda: self.current.notice.show_details(), "Ctrl+I", doc=True)
         icon_names = {"open": "open", "save_current": "save", "save": "save", "print": "print", "undo": "undo", "redo": "redo",
                       "rotate": "rotate", "delete": "delete", "note": "note", "copy": "copy", "edit_text": "edit_text",
@@ -277,6 +278,8 @@ class MainWindow(QMainWindow):
                   self.a_fit_width, self.a_fit_page, self.a_vector, self.a_find, self.a_sidebar,
                   self.a_find_prev, self.a_find_next):
             menu_view.addAction(a)
+        menu_view.addSeparator()
+        menu_view.addAction(self.a_reunite_tabs)
         settings_menu = self.menuBar().addMenu(tr("Impostazioni"))
         settings_menu.addAction(self.a_settings)
         help_menu = self.menuBar().addMenu(tr("Aiuto"))
@@ -525,6 +528,7 @@ class MainWindow(QMainWindow):
         for action in self._edit_actions:
             action.setEnabled(tab is not None and not tab.editor.encrypted)
         self.a_form.setEnabled(tab is not None and bool(tab.form_fields))
+        self.a_reunite_tabs.setEnabled(self.tabs.group_count() > 1)
         self.a_edit_text.setChecked(tab is not None and tab.inline_text.active)
         self.a_draw.setChecked(tab is not None and tab.ink.active)
         preparing = tab is not None and tab.form_designer.isVisible()
@@ -729,6 +733,7 @@ class MainWindow(QMainWindow):
         tab.notice.links_requested.connect(lambda owner=tab: self.toggle_pdf_links(owner))
         tab.message.connect(lambda text, owner=tab: self.statusBar().showMessage(text, 5000) if self.current is owner else None)
         tab.viewer.zoomFactorChanged.connect(lambda _, owner=tab: self._update_zoom() if self.current is owner else None)
+        tab.viewer.viewportResized.connect(lambda owner=tab: self._update_zoom() if self.current is owner else None)
         tab.viewer.vectors.changed.connect(lambda owner=tab: self._update_render_state() if self.current is owner else None)
         tab.page_changed.connect(lambda p, n, owner=tab: self._update_page(p, n) if self.current is owner else None)
         tab.search_changed.connect(
@@ -741,10 +746,10 @@ class MainWindow(QMainWindow):
         self._remember_file(path)
         self._update_state()
 
-    def _confirm_close(self, tab: DocumentTab) -> bool:
+    def _confirm_close(self, tab: DocumentTab, when_ready=None) -> bool:
         if not tab.form_designer.confirm_discard():
             return False
-        if not tab.finish_form():
+        if not tab.finish_form(when_ready):
             return False
         if not tab.editor.dirty:
             return True
@@ -763,10 +768,10 @@ class MainWindow(QMainWindow):
         if tab is not None and tab is self._ocr_tab:
             self.statusBar().showMessage(tr("Attendi l'OCR oppure premi Annulla nella finestra di avanzamento."))
             return
-        if tab is None or not self._confirm_close(tab):
+        if tab is None or not self._confirm_close(tab, lambda: self.close_tab(self.tabs.indexOf(tab))):
             return
-        tab.close_document()
-        self.tabs.removeTab(index)
+        tab.close_document(defer_cleanup=True)
+        self.tabs.removeTab(self.tabs.indexOf(tab))
         tab.deleteLater()
         self._update_state()
 
@@ -787,6 +792,11 @@ class MainWindow(QMainWindow):
             event.ignore()
             self.statusBar().showMessage(tr("Attendi la conversione Word oppure premi Annulla nella finestra di avanzamento."))
             return
+        # Finish every open draft before presenting any save/discard prompts.
+        for index in range(self.tabs.count()):
+            if not self.tabs.widget(index).inline_text.finish(self.close):
+                event.ignore()
+                return
         for index in range(self.tabs.count()):
             tab = self.tabs.widget(index)
             if not self._confirm_close(tab):
@@ -803,7 +813,7 @@ class MainWindow(QMainWindow):
         self.update_toast.dismiss()
         for index in reversed(range(self.tabs.count())):
             tab = self.tabs.widget(index)
-            tab.close_document()
+            tab.close_document(defer_cleanup=True)
             self.tabs.removeTab(index)
         super().closeEvent(event)
 
@@ -822,9 +832,9 @@ class MainWindow(QMainWindow):
             self.toast.show_completion(notification, output)
         return True
 
-    def _edit(self, method: str, *args) -> None:
-        tab = self.current
-        if tab is None:
+    def _edit(self, method: str, *args, tab=None) -> None:
+        tab = tab if tab is not None else self.current
+        if tab is None or not tab.finish_form(lambda: self._edit(method, *args, tab=tab)):
             return
         self._run(lambda: tab.apply_edit(method, *args), tr("Modifica applicata · Usa Ctrl+Z per annullare"))
 
@@ -914,9 +924,9 @@ class MainWindow(QMainWindow):
         if confirmed == QMessageBox.StandardButton.Yes:
             self._edit("delete", tab.page)
 
-    def _document_tool(self, method, args):
-        tab = self.current
-        if not tab or not tab.finish_form():
+    def _document_tool(self, method, args, *, tab=None):
+        tab = tab if tab is not None else self.current
+        if not tab or not tab.finish_form(lambda: self._document_tool(method, args, tab=tab)):
             return
         page = args[0] if method == 'insert_blank' else tab.page
         progress = EditProgress(tab.editor, method, args, self)
@@ -1032,7 +1042,7 @@ class MainWindow(QMainWindow):
             self._save_tab(self.current)
 
     def _save_tab(self, tab: DocumentTab) -> bool:
-        if tab.editor.encrypted or not tab.finish_form():
+        if tab.editor.encrypted or not tab.finish_form(lambda: self._save_tab(tab)):
             return False
         if tab.editor.output_path == tab.editor.source:
             return self._save_as_tab(tab)
@@ -1042,10 +1052,11 @@ class MainWindow(QMainWindow):
         return self._run(lambda: tab.editor.save_as(path), tr('PDF salvato: {0}', path.name),
                          output=path, notification=tr("PDF salvato"))
 
-    def print_document(self) -> None:
-        if self.current and self.current.finish_form():
+    def print_document(self, *, tab=None) -> None:
+        tab = tab if tab is not None else self.current
+        if tab and tab.finish_form(lambda: self.print_document(tab=tab)):
             def show_print():
-                dialog = PrintDialog(self.current, self)
+                dialog = PrintDialog(tab, self)
                 try:
                     dialog.exec()
                 finally:
@@ -1058,7 +1069,7 @@ class MainWindow(QMainWindow):
             self._save_as_tab(self.current)
 
     def _save_as_tab(self, tab: DocumentTab) -> bool:
-        if not tab.finish_form():
+        if not tab.finish_form(lambda: self._save_as_tab(tab)):
             return False
         proposed = self._choose_output_name(tab.editor.output_path, "_edited")
         destination, _ = QFileDialog.getSaveFileName(self, tr("Salva PDF con nome"), proposed, tr("Documenti PDF (*.pdf)"), options=QFileDialog.Option.DontConfirmOverwrite)
@@ -1073,9 +1084,9 @@ class MainWindow(QMainWindow):
             self._remember_file(path)
         return success
 
-    def extract_pages(self) -> None:
-        tab = self.current
-        if not tab or not tab.finish_form():
+    def extract_pages(self, *, tab=None) -> None:
+        tab = tab if tab is not None else self.current
+        if not tab or not tab.finish_form(lambda: self.extract_pages(tab=tab)):
             return
         spec, ok = QInputDialog.getText(
             self, tr("Estrai pagine"), tr('Pagine disponibili: 1–{0}. Inserisci, ad esempio, 1,3-5:', tab.count),
@@ -1096,9 +1107,9 @@ class MainWindow(QMainWindow):
                 self._run(lambda: tab.editor.extract(pages, path), tr('Pagine estratte in {0}', path),
                           output=path, notification=tr("Pagine PDF esportate"))
 
-    def split_pdf(self) -> None:
-        tab = self.current
-        if not tab or tab.editor.encrypted or not tab.finish_form():
+    def split_pdf(self, *, tab=None) -> None:
+        tab = tab if tab is not None else self.current
+        if not tab or tab.editor.encrypted or not tab.finish_form(lambda: self.split_pdf(tab=tab)):
             return
         if tab.count < 2:
             QMessageBox.information(self, tr("Dividi PDF"), tr("Servono almeno due pagine per dividere il PDF."))
@@ -1113,9 +1124,9 @@ class MainWindow(QMainWindow):
         finally:
             dialog.deleteLater()
 
-    def export_image(self) -> None:
-        tab = self.current
-        if tab and not tab.finish_form():
+    def export_image(self, *, tab=None) -> None:
+        tab = tab if tab is not None else self.current
+        if tab and not tab.finish_form(lambda: self.export_image(tab=tab)):
             return
         if not tab or tab.editor.encrypted:
             return
@@ -1143,9 +1154,10 @@ class MainWindow(QMainWindow):
             self._run(lambda: export_page_image(tab.pdf, page, path, dpi), tr('Pagina {0} esportata in {1}', page + 1, path),
                       output=path, notification=tr("Immagine esportata"))
 
-    def export_compressed(self) -> None:
-        tab = self.current
-        if not tab or tab.editor.encrypted or self._compression_job is not None or not tab.finish_form():
+    def export_compressed(self, *, tab=None) -> None:
+        tab = tab if tab is not None else self.current
+        if (not tab or tab.editor.encrypted or self._compression_job is not None
+                or not tab.finish_form(lambda: self.export_compressed(tab=tab))):
             return
         dialog = CompressionDialog(self)
         try:
@@ -1209,9 +1221,9 @@ class MainWindow(QMainWindow):
     def _file_size(size):
         return f'{size / (1024 * 1024):.2f} MiB' if size >= 1024 * 1024 else f'{size / 1024:.1f} KiB'
 
-    def export_docx(self) -> None:
-        tab = self.current
-        if tab and not tab.finish_form():
+    def export_docx(self, *, tab=None) -> None:
+        tab = tab if tab is not None else self.current
+        if tab and not tab.finish_form(lambda: self.export_docx(tab=tab)):
             return
         if not tab or tab.editor.encrypted or self._export_job is not None:
             return
@@ -1269,9 +1281,9 @@ class MainWindow(QMainWindow):
                   + (tr(' {0} pagine senza testo incluse come immagini; OCR non eseguito.', count) if count else ""))
         self.toast.show_completion(tr("Documento Word esportato"), path, detail)
 
-    def recognize_text(self):
-        tab = self.current
-        if tab and not tab.finish_form():
+    def recognize_text(self, *, tab=None):
+        tab = tab if tab is not None else self.current
+        if tab and not tab.finish_form(lambda: self.recognize_text(tab=tab)):
             return
         if not tab or tab.editor.encrypted or self._ocr_job is not None:
             return

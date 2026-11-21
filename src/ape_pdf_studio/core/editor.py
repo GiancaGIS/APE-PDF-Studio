@@ -33,11 +33,11 @@ from .private_work import PrivateDirectory, check_budget
 class PDFEditor:
     """Owns one PDF's immutable source, working snapshots and save target."""
 
-    def __init__(self, source: str | Path, password: str | None = None):
+    def __init__(self, source: str | Path, password: str | None = None, *, workspace: Path | None = None):
         self.source = user_path(source)
         if not self.source.is_file() or self.source.suffix.lower() != ".pdf":
             raise PDFOperationError(tr("Seleziona un file PDF esistente."))
-        self._temp = PrivateDirectory()
+        self._temp = PrivateDirectory(dir=workspace)
         original = Path(self._temp.name) / "original.pdf"
         try:
             copy_checked(self.source, original)
@@ -62,6 +62,8 @@ class PDFEditor:
         self._saved_index = 0
         self.output_path = self.source
         self._password = password
+        from .text_edit import TextCache
+        self._text_cache = TextCache()
 
     @property
     def path(self) -> Path:
@@ -140,6 +142,7 @@ class PDFEditor:
         finally:
             reader.close()
 
+        self._text_cache.invalidate()
         obsolete = self._revisions[self._index + 1:]
         for old in obsolete:
             if old != self.source:
@@ -166,6 +169,17 @@ class PDFEditor:
             return read_metadata(reader)
         finally:
             reader.close()
+
+    def signature_certificates(self, index: int):
+        """Read the certificates of a signature from the untouched revision."""
+        from .signature_certificates import read_signature_certificates
+
+        if type(index) is not int or not 0 <= index < len(self.document_info.signatures):
+            raise PDFOperationError(tr("Firma digitale non disponibile."))
+        with PdfReader(self._revisions[0]) as reader:
+            if reader.is_encrypted and not reader.decrypt(self._password or ""):
+                raise PDFPasswordRequired(tr("Password necessaria o non corretta."))
+            return read_signature_certificates(reader, index)
 
     def update_metadata(self, values: dict[str, str]) -> None:
         if self.encrypted:
@@ -488,73 +502,73 @@ class PDFEditor:
 
     def paragraph_at(self, page, position):
         from .paragraph_edit import paragraph_at
-        if self.encrypted:
-            raise PDFOperationError(tr("I PDF protetti sono in sola lettura."))
-        with self._reader() as reader:
-            self._valid_page(page, len(reader.pages))
-        return paragraph_at(self.path, page, position)
+        self._text_revision()
+        return paragraph_at(self.path, page, position, self._text_cache)
 
     def paragraph_boxes(self, page):
         from .paragraph_edit import paragraph_boxes
-        if self.encrypted:
-            raise PDFOperationError(tr("I PDF protetti sono in sola lettura."))
-        with self._reader() as reader:
-            self._valid_page(page, len(reader.pages))
-        return paragraph_boxes(self.path, page)
+        self._text_revision()
+        return paragraph_boxes(self.path, page, self._text_cache)
+
+    def new_paragraph_at(self, page, position):
+        from .paragraph_edit import new_paragraph_at
+        self._text_revision()
+        return new_paragraph_at(self.path, page, position, self._text_cache)
 
     def paragraph_info(self, target, text, size, alignment):
-        from .paragraph_edit import paragraph_info
-        if target.revision != str(self.path):
-            raise PDFOperationError(tr("Il documento è cambiato. Seleziona nuovamente il testo."))
-        return paragraph_info(self.path, target, text, size, alignment)
+        return self.text_preview(target, text, size, alignment)
 
-    def replace_paragraph(self, target, text, size=None, alignment=None):
-        from .paragraph_edit import replace_paragraph
-        if target.revision != str(self.path):
+    def text_preview(self, target, text, size, alignment=None, formatting=None, artifact=None):
+        from .text_edit import layout_info
+        self._text_revision(target)
+        return layout_info(self.path, target, text, size, alignment, self._text_cache, artifact, formatting)
+
+    def _text_revision(self, target=None):
+        if self.encrypted:
+            raise PDFOperationError(tr("I PDF protetti sono in sola lettura."))
+        if target is not None and target.revision != str(self.path):
             raise PDFOperationError(tr("Il documento è cambiato. Seleziona nuovamente il testo."))
+
+    def replace_paragraph(self, target, text, size=None, alignment=None, formatting=None):
+        self._text_revision(target)
         size = target.size if size is None else size
         alignment = target.alignment if alignment is None else alignment
-        if text == target.text and size == target.size and alignment == target.alignment:
+        if target.members and text == target.text and size == target.size and alignment == target.alignment and formatting is None:
             return
-        def op(writer, reader):
-            self._valid_page(target.page, len(reader.pages))
-            replace_paragraph(writer, reader, self.path, target, text, size, alignment)
-        self._commit(op)
+        self._edit_text(target, text, size, alignment, formatting)
 
     def text_boxes(self, page):
         from .text_edit import editable_boxes
-        if self.encrypted:
-            raise PDFOperationError(tr("I PDF protetti sono in sola lettura."))
-        with self._reader() as reader:
-            self._valid_page(page, len(reader.pages))
-        return editable_boxes(self.path, page)
+        self._text_revision()
+        return editable_boxes(self.path, page, self._text_cache)
 
     def text_at(self, page, position):
-        if self.encrypted:
-            raise PDFOperationError(tr("I PDF protetti sono in sola lettura."))
         from .text_edit import find_target
-        reader = self._reader()
+        self._text_revision()
         try:
-            self._valid_page(page, len(reader.pages))
-        finally:
-            reader.close()
-        try:
-            return find_target(self.path, page, position)
+            return find_target(self.path, page, position, self._text_cache)
         except PDFOperationError:
             raise
         except Exception as exc:
             raise PDFOperationError(tr("Impossibile leggere il testo per la modifica.")) from exc
 
-    def replace_text(self, target, text, size=None):
-        from .text_edit import replace_page
-        if target.revision != str(self.path):
-            raise PDFOperationError(tr("Il documento è cambiato. Seleziona nuovamente il testo."))
+    def replace_text(self, target, text, size=None, formatting=None):
+        self._text_revision(target)
         size = target.size if size is None else size
-        if text == target.text and size == target.size:
+        if text == target.text and size == target.size and formatting is None:
             return
+        self._edit_text(target, text, size, None, formatting)
+
+    def delete_text(self, target):
+        self._text_revision(target)
+        self._edit_text(target, '', target.size, None, delete=True)
+
+    def _edit_text(self, target, text, size, alignment, formatting=None, *, delete=False):
+        from .text_edit import replace_content
         def op(writer, reader):
             self._valid_page(target.page, len(reader.pages))
-            replace_page(writer, reader, self.path, target, text, size)
+            replace_content(writer, reader, self.path, target, text, size, alignment,
+                            self._text_cache, formatting, delete=delete)
         self._commit(op)
 
     def apply_ocr(self, result: str | Path, revision: str | Path) -> None:
@@ -626,17 +640,20 @@ class PDFEditor:
     def undo(self) -> bool:
         if not self.can_undo:
             return False
+        self._text_cache.invalidate()
         self._index -= 1
         return True
 
     def redo(self) -> bool:
         if not self.can_redo:
             return False
+        self._text_cache.invalidate()
         self._index += 1
         return True
 
     def close(self) -> None:
         self._password = None
+        self._text_cache.invalidate()
         self._temp.cleanup()
 
 

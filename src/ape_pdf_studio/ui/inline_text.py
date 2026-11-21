@@ -1,24 +1,25 @@
 """Direct text editing on the viewport; all PDF reads remain sandboxed RPCs."""
 from collections import OrderedDict
+from threading import Event
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, QSignalBlocker, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QTextOption, QWheelEvent
+from PySide6.QtGui import QColor, QFont, QImage, QKeySequence, QShortcut, QTextCursor, QTextOption, QWheelEvent
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QVBoxLayout,
+    QApplication, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLineEdit,
+    QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
-from ..core.errors import PDFOperationError
 from ..core.localization import tr
 from ..core.paragraph_edit import ParagraphTarget
-from .content_dialogs import TextEditDialog, _TextSignals, _TextTask, plain_label
+from .content_dialogs import _TextSignals, _TextTask, plain_label
 from .theme import theme_color
 
 
 class ParagraphEdit(QPlainTextEdit):
     """Plain text only: PDF strings can never become HTML or external resources."""
     def text(self):
-        return self.toPlainText()
+        # Qt's toPlainText converts nonbreaking spaces to ordinary spaces.
+        return self.document().toRawText().replace('\u2029', '\n')
 
     def setText(self, text):
         self.setPlainText(text)
@@ -36,10 +37,15 @@ class InlineText(QObject):
         self._epoch = 0
         self._closed = False
         self._finishing = False
+        self._after_commit = None
         self._loading = False
         self._font_running = False
+        self._preview_cancel = Event()
         self._font_cache = OrderedDict()
         self._preview_bbox = None
+        self._preview_image = None
+        self._color = None
+        self._format_cursor = None
         self.boxes = OrderedDict()
         self._box_pending = set()
         self._signals = _TextSignals(self)
@@ -72,6 +78,13 @@ class InlineText(QObject):
         self.apply.setObjectName("Primary")
         self.apply.clicked.connect(self.finish)
         row.addWidget(self.apply)
+        self.new_button = QPushButton(tr("Nuovo testo"))
+        self.new_button.setCheckable(True)
+        self.new_button.toggled.connect(self._new_block_toggled)
+        row.addWidget(self.new_button)
+        self.delete_button = QPushButton(tr("Elimina testo"))
+        self.delete_button.clicked.connect(self.delete_text)
+        row.addWidget(self.delete_button)
         self.cancel_button = QPushButton(tr("Annulla"))
         self.cancel_button.clicked.connect(self.cancel)
         row.addWidget(self.cancel_button)
@@ -89,9 +102,57 @@ class InlineText(QObject):
         self.alignment.setAccessibleName(tr("Allineamento"))
         self.alignment.currentIndexChanged.connect(self._value_changed)
         options.addWidget(self.alignment)
+        self.preview = QCheckBox(tr("Anteprima"))
+        self.preview.toggled.connect(self._preview_changed)
+        options.addWidget(self.preview)
+        self.format_button = QPushButton(tr("Formato"))
+        self.format_button.setCheckable(True)
+        self.format_button.toggled.connect(self._format_toggled)
+        options.addWidget(self.format_button)
         self.font_label = plain_label("", "Caption")
+        self.font_label.setMaximumHeight(40)
         options.addWidget(self.font_label, 1)
         layout.addLayout(options)
+        self.format_panel = QWidget(self.bar)
+        format_layout = QVBoxLayout(self.format_panel)
+        format_layout.setContentsMargins(0, 0, 0, 0)
+        format_row = QHBoxLayout()
+        format_layout.addLayout(format_row)
+        self.family = QComboBox()
+        self.family.setAccessibleName(tr("Famiglia del font"))
+        for label, value in (("Font originale", None), ("Sans serif", 'helv'), ("Serif", 'tiro'), ("Monospazio", 'cour')):
+            self.family.addItem(tr(label), value)
+        self.family.currentIndexChanged.connect(self._value_changed)
+        format_row.addWidget(self.family)
+        self.font_style = QComboBox()
+        self.font_style.setAccessibleName(tr("Stile del testo"))
+        for label in ("Stile originale", "Normale", "Grassetto", "Corsivo", "Grassetto corsivo"):
+            self.font_style.addItem(tr(label))
+        self.font_style.currentIndexChanged.connect(self._value_changed)
+        format_row.addWidget(self.font_style)
+        self.color_button = QPushButton(tr("Colore testo"))
+        self.color_button.clicked.connect(self._choose_color)
+        format_row.addWidget(self.color_button)
+        size_row = QHBoxLayout()
+        format_layout.addLayout(size_row)
+        self.format_selection = QCheckBox(tr("Solo selezione"))
+        self.format_selection.toggled.connect(self._scope_changed)
+        size_row.addWidget(self.format_selection)
+        size_row.addStretch()
+        self.width = QDoubleSpinBox()
+        self.width.setDecimals(2)
+        self.width.setMinimum(1)
+        self.width.setSuffix(' pt')
+        self.width.setAccessibleName(tr("Larghezza del paragrafo"))
+        self.width.setToolTip(tr("Larghezza del paragrafo"))
+        self.width.valueChanged.connect(self._value_changed)
+        size_row.addWidget(self.width)
+        self.reset_format = QPushButton(tr("Ripristina formato"))
+        self.reset_format.clicked.connect(self._reset_format)
+        size_row.addWidget(self.reset_format)
+        layout.addWidget(self.format_panel)
+        self.format_panel.hide()
+        self._initial_width = 0
         self.feedback = plain_label("", "EditFeedback")
         self.feedback.hide()
         layout.addWidget(self.feedback)
@@ -102,15 +163,27 @@ class InlineText(QObject):
         self.view.zoomFactorChanged.connect(self.reposition)
         self.view.zoomModeChanged.connect(self.reposition)
         self.view.pageNavigator().currentPageChanged.connect(self._page_changed)
+        self._box_shortcuts = []
+        for key, step in (("Alt+Down", 1), ("Alt+Up", -1)):
+            shortcut = QShortcut(QKeySequence(key), self.view)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.setEnabled(False)
+            shortcut.activated.connect(lambda step=step: self._step_box(step))
+            self._box_shortcuts.append(shortcut)
 
     @property
     def dirty(self):
         return self.control is not None and self.target is not None and (
             self.control.text() != self.target.text or self.size.value() != self._initial_size
-            or (isinstance(self.target, ParagraphTarget) and self.alignment.currentIndex() != self.target.alignment))
+            or (isinstance(self.target, ParagraphTarget) and self.alignment.currentIndex() != self.target.alignment)
+            or self._formatting() is not None)
+
+    @property
+    def committing(self):
+        return self._finishing
 
     def _mode_changed(self, checked):
-        if not self.finish():
+        if not self.finish(lambda: self.reflow.setChecked(checked)):
             with QSignalBlocker(self.reflow):
                 self.reflow.setChecked(not checked)
             return
@@ -131,6 +204,8 @@ class InlineText(QObject):
         if self.tab.ink.active and not self.tab.ink.deactivate():
             return False
         self.active = True
+        for shortcut in self._box_shortcuts:
+            shortcut.setEnabled(True)
         self.view._cancel_placement()
         self.view.clear_selection()
         self.feedback.clear()
@@ -150,9 +225,13 @@ class InlineText(QObject):
         return result
 
     def deactivate(self):
-        if not self.finish():
+        if not self.finish(self.deactivate):
             return False
         self.active = False
+        for shortcut in self._box_shortcuts:
+            shortcut.setEnabled(False)
+        with QSignalBlocker(self.new_button):
+            self.new_button.setChecked(False)
         self.boxes.clear()
         self.bar.hide()
         self.view.viewport().update()
@@ -160,18 +239,92 @@ class InlineText(QObject):
         return True
 
     def _idle(self):
-        self.font_label.setText(tr("Invio: nuova riga · Ctrl+Invio: applica · Esc: annulla") if self.reflow.isChecked() else
-                               tr("Fai clic su un riquadro e modifica il testo sulla pagina. Invio: applica · Esc: annulla."))
+        if self.new_button.isChecked():
+            self.font_label.setText(tr("Fai clic in uno spazio libero della pagina per inserire il testo."))
+        else:
+            self.font_label.setText(tr("Invio: nuova riga · Ctrl+Invio: applica · Esc: annulla") if self.reflow.isChecked() else
+                                   tr("Fai clic su un riquadro e modifica il testo sulla pagina. Invio: applica · Esc: annulla."))
         self.size.setEnabled(False)
         self.alignment.setEnabled(False)
         self.apply.setEnabled(False)
+        self.delete_button.setEnabled(False)
+        self.preview.setEnabled(False)
+        self.format_button.setEnabled(False)
+        with QSignalBlocker(self.format_button):
+            self.format_button.setChecked(False)
+        self.format_panel.hide()
 
-    def _task(self, kind, key, operation):
+    def _new_block_toggled(self, checked):
+        if not self.finish(lambda: self.new_button.setChecked(checked)):
+            with QSignalBlocker(self.new_button):
+                self.new_button.setChecked(not checked)
+        if self.target is None:
+            self._idle()
+        self.reposition()
+
+    def _format_toggled(self, checked):
+        self.format_panel.setVisible(checked)
+        self.reposition()
+
+    def _choose_color(self):
+        if self.target is None or self._finishing:
+            return
+        current = self.target.color if self._color is None else self._color
+        color = QColorDialog.getColor(QColor.fromRgb(current), self.bar, tr("Colore testo"))
+        if color.isValid():
+            self._color = color.rgb() & 0xffffff
+            self.color_button.setText(color.name())
+            self._value_changed()
+
+    def _reset_format(self):
+        self._color = None
+        self._format_cursor = None
+        with QSignalBlocker(self.format_selection):
+            self.format_selection.setChecked(False)
+        for widget in (self.family, self.font_style, self.width):
+            with QSignalBlocker(widget):
+                if widget is self.width:
+                    self.width.setValue(self._initial_width)
+                else:
+                    widget.setCurrentIndex(0)
+        self.color_button.setText(tr("Colore testo"))
+        self._value_changed()
+
+    def _scope_changed(self, checked):
+        self._format_cursor = None
+        if checked:
+            cursor = self.control.textCursor() if isinstance(self.control, ParagraphEdit) else None
+            if cursor is None or not cursor.hasSelection():
+                with QSignalBlocker(self.format_selection):
+                    self.format_selection.setChecked(False)
+                self.feedback.setText(tr("Seleziona i caratteri da formattare nel riquadro."))
+                self.feedback.show()
+                self.reposition()
+                return
+            # QTextCursor follows edits to the source document. The worker
+            # validates the converted character offsets against graphemes.
+            self._format_cursor = QTextCursor(cursor)
+        self._value_changed()
+
+    def _formatting(self):
+        bold, italic = ((None, None), (False, False), (True, False), (False, True),
+                        (True, True))[self.font_style.currentIndex()]
+        width = self.width.value() if isinstance(self.target, ParagraphTarget) and self.width.value() != self._initial_width else None
+        formatting = self.family.currentData(), self._color, bold, italic, width
+        if self._format_cursor is not None and (any(value is not None for value in formatting[:4])
+                or self.size.value() != self._initial_size):
+            data = self.control.text().encode('utf-16-le', errors='surrogatepass')
+            offsets = (self._format_cursor.selectionStart(), self._format_cursor.selectionEnd())
+            selection = tuple(len(data[:2 * i].decode('utf-16-le', errors='ignore')) for i in offsets)
+            return (*formatting, selection)
+        return formatting if any(value is not None for value in formatting) else None
+
+    def _task(self, kind, key, operation, priority=1):
         from PySide6.QtCore import QThreadPool
-        QThreadPool.globalInstance().start(_TextTask(kind, key, operation, self._signals), 1)
+        QThreadPool.globalInstance().start(_TextTask(kind, key, operation, self._signals), priority)
 
     def _page_changed(self, *_):
-        if not self.active or self._closed:
+        if not self.active or self._closed or self._finishing:
             return
         page = self.view.pageNavigator().currentPage()
         revision = self.tab.editor.path
@@ -183,8 +336,20 @@ class InlineText(QObject):
             resolver = editor.paragraph_boxes if self.reflow.isChecked() else editor.text_boxes
             self._task("boxes", key, lambda: resolver(page))
 
+    def _step_box(self, step):
+        page = self.tab.page
+        boxes = self.boxes.get(page)
+        if not boxes or self._finishing:
+            return
+        current = self.target.display_bbox if self.target is not None and self.target.page == page else None
+        index = boxes.index(current) if current in boxes else (-1 if step > 0 else 0)
+        left, top, right, bottom = boxes[(index + step) % len(boxes)]
+        with QSignalBlocker(self.new_button):
+            self.new_button.setChecked(False)
+        self.start(page, QPointF((left + right) / 2, (top + bottom) / 2))
+
     def start(self, page, point):
-        if not self.finish() or (not self.active and not self.activate()):
+        if not self.finish(lambda: self.start(page, point)) or (not self.active and not self.activate()):
             return False
         self._loading = True
         self.feedback.clear()
@@ -194,13 +359,20 @@ class InlineText(QObject):
         key = (self._epoch, editor.path)
         position = (point.x(), point.y())
         self._cursor_position = page, QPointF(point)
-        resolver = editor.paragraph_at if self.reflow.isChecked() else editor.text_at
+        if self.new_button.isChecked():
+            resolver = editor.new_paragraph_at
+        else:
+            resolver = editor.paragraph_at if self.reflow.isChecked() else editor.text_at
         self._task("target", key, lambda: resolver(page, position))
         self.reposition()
         return True
 
     def _completed(self, kind, key, value, error):
         if self._closed:
+            return
+        if kind == 'commit':
+            if key[0] == self._epoch:
+                self._commit_completed(error)
             return
         if kind == "boxes":
             self._box_pending.discard(key)
@@ -211,7 +383,7 @@ class InlineText(QObject):
                 self.view.viewport().update()
             self._page_changed()
             return
-        if not self.active or key[0] != self._epoch:
+        if not self.active or key[0] != self._epoch or self._finishing:
             return
         if kind == "target":
             self._loading = False
@@ -230,10 +402,22 @@ class InlineText(QObject):
             self._initial_size = self.size.value()
             self.size.setEnabled(True)
             paragraph = isinstance(value, ParagraphTarget)
+            with QSignalBlocker(self.new_button):
+                self.new_button.setChecked(False)
+            with QSignalBlocker(self.width):
+                self.width.setMaximum(value.column_limit if paragraph else 1)
+                self.width.setValue(value.layout_bbox[2] - value.layout_bbox[0] if paragraph else 1)
+            self._initial_width = self.width.value()
+            self.width.setEnabled(paragraph)
+            self.format_selection.setEnabled(paragraph)
+            self._reset_format()
             with QSignalBlocker(self.alignment):
                 self.alignment.setCurrentIndex(value.alignment if paragraph else 0)
             self.alignment.setEnabled(paragraph)
             self.apply.setEnabled(True)
+            self.delete_button.setEnabled(bool(value.text))
+            self.preview.setEnabled(True)
+            self.format_button.setEnabled(True)
             if paragraph:
                 self.control = ParagraphEdit(self.view.viewport())
                 self.control.setPlainText(value.text)
@@ -262,106 +446,180 @@ class InlineText(QObject):
                 self.control.setTextCursor(self.control.cursorForPosition(self.control.viewport().mapFrom(self.control, local)))
             else:
                 self.control.setCursorPosition(self.control.cursorPositionAt(local))
-            self._font_info()
+            if value.text:
+                self._font_info()
+            else:
+                self.font_label.setText(tr("Scrivi il testo nel nuovo riquadro."))
             return
         self._font_running = False
-        if self.control is None:
+        if self.control is None or key[2] != self.tab.editor.path:
             return
-        text = key[1]
-        if not error:
-            self._font_cache[text] = value
-            while len(self._font_cache) > 16:
+        draft = key[1]
+        if not error and value[0] is not None:
+            self._font_cache[draft] = value
+            while len(self._font_cache) > 4:
                 self._font_cache.popitem(last=False)
-        current = self._layout_key() if kind == 'paragraph' else self.control.text()
-        if text == current:
+        if draft == self._layout_key():
             if error:
-                self.font_label.setText(error)
-            else:
-                self._show_paragraph(value) if kind == 'paragraph' else self._show_font(value)
+                self.feedback.setText(error)
+                self.feedback.show()
+            elif value[0] is not None:
+                self._show_layout(*value)
+            elif not self._font_timer.isActive():
+                self._font_info()
             self.reposition()
         elif not self._font_timer.isActive():
             self._font_info()
 
-    def _show_font(self, value):
-        name, fallback = value
-        self.font_label.setText(tr("Font di scrittura: ") + name +
-                               (tr(" · font compatibile") if fallback else tr(" · font originale")))
-
     def _layout_key(self):
         size = self.target.size if self.size.value() == self._initial_size else self.size.value()
-        return self.control.text(), size, self.alignment.currentIndex()
+        alignment = self.alignment.currentIndex() if isinstance(self.target, ParagraphTarget) else None
+        return self.control.text(), size, alignment, self._formatting(), self.preview.isChecked()
 
-    def _show_paragraph(self, value):
-        self._preview_bbox = value['bbox']
-        self.font_label.setText(tr('Paragrafo: {0} righe · font: {1}', value['lines'], value['font']) +
-                               (tr(' · font compatibile') if value['fallback'] else ''))
+    def _show_layout(self, value, data):
+        self._preview_bbox = value['bbox'] if value['fits'] else None
+        fonts = ', '.join(dict.fromkeys(run[4] for run in value['runs'])) or value['font']
+        self.font_label.setText(tr('Paragrafo: {0} righe · font: {1}', value['lines'], fonts)
+                               if isinstance(self.target, ParagraphTarget) else tr("Font di scrittura: ") + fonts)
+        if value['fallback']:
+            self.font_label.setText(self.font_label.text() + tr(' · font compatibile'))
         self.feedback.setText(value['message'])
         self.feedback.setVisible(not value['fits'])
-        self.view.edit_target = self.target.page, value['bbox']
+        self._preview_image = None
+        if data is not None and self.preview.isChecked():
+            bbox, width, height = value['raster']
+            x0, y0, x1, y1 = bbox
+            page_size = self.tab.pdf.pagePointSize(self.target.page)
+            pad = max(1., (x1 - x0) / width, (y1 - y0) / height)
+            if max(-x0, -y0, x1 - page_size.width(), y1 - page_size.height()) <= pad + .25:
+                self._preview_image = (QRectF(x0, y0, x1 - x0, y1 - y0),
+                                       QImage(data, width, height, width * 3, QImage.Format.Format_RGB888).copy())
+        self.view.edit_target = self.target.page, self._preview_bbox or self.target.display_bbox
         self.reposition()
         self.view.viewport().update()
 
     def _font_info(self):
-        if self.control is None or self._closed:
+        if self.control is None or self._closed or self._finishing:
             return
-        paragraph = isinstance(self.target, ParagraphTarget)
-        text = self._layout_key() if paragraph else self.control.text()
-        if text in self._font_cache:
-            self._show_paragraph(self._font_cache[text]) if paragraph else self._show_font(self._font_cache[text])
+        draft = self._layout_key()
+        if draft in self._font_cache:
+            self._show_layout(*self._font_cache[draft])
             return
         if self._font_running:
             return
         self._font_running = True
         self.font_label.setText(tr("Analisi del font in corso…"))
         editor, target = self.tab.editor, self.target
-        if paragraph:
-            self._task('paragraph', (self._epoch, text), lambda: editor.paragraph_info(target, *text))
-        else:
-            self._task("font", (self._epoch, text), lambda: TextEditDialog._resolve_font(
-                lambda target, text: editor.call('font_details', target, text), target, text))
+        cancel = self._preview_cancel = Event()
+        text, size, alignment, formatting, raster = draft
+        self._task('layout', (self._epoch, draft, editor.path),
+                   lambda: editor.preview_text(target, text, size, alignment, formatting,
+                                               raster=raster, cancelled=cancel))
+
+    def _preview_changed(self, checked):
+        self._preview_image = None
+        self.view.viewport().update()
+        self.reposition()
+        if self.control is not None:
+            self._preview_cancel.set()
+            self._font_timer.stop()
+            self._font_info()
+            if not checked:
+                self.control.setFocus()
+
+    def paint_preview(self, painter, page, transform):
+        if self._preview_image is not None and self.target.page == page:
+            bounds, image = self._preview_image
+            painter.drawImage(transform.mapRect(bounds), image)
 
     def _value_changed(self, *_):
         if self.control is not None:
-            self._font_timer.start(200)
+            self._preview_cancel.set()
+            self._font_timer.start(150)
             self.feedback.clear()
             self.feedback.hide()
             self.reposition()
             self.changed.emit()
 
-    def finish(self):
-        if self._closed or self._finishing:
+    def finish(self, when_ready=None):
+        if self._closed:
             return True
+        if self._finishing:
+            if callable(when_ready) and self._after_commit is None:
+                self._after_commit = when_ready
+            return False
         if not self.dirty:
             self.cancel()
             return True
-        target, text = self.target, self.control.text()
-        size = target.size if self.size.value() == self._initial_size else self.size.value()
+        text, size, alignment, formatting, _ = self._layout_key()
+        method = 'replace_text' if alignment is None else 'replace_paragraph'
+        args = (self.target, text, size) + (() if alignment is None else (alignment,)) + (formatting,)
+        self._commit(method, args, when_ready if callable(when_ready) else None)
+        return False
+
+    def delete_text(self):
+        if self.target is not None and self.target.text and not self._finishing:
+            self._commit('delete_text', (self.target,), None)
+
+    def _commit(self, method, args, when_ready):
+        self._epoch += 1
+        self._preview_cancel.set()
+        self._font_timer.stop()
         self._finishing = True
-        try:
-            if isinstance(target, ParagraphTarget):
-                self.tab.apply_edit('replace_paragraph', target, text, size, self.alignment.currentIndex())
-            else:
-                self.tab.apply_edit("replace_text", target, text, size)
-        except PDFOperationError as exc:
-            self.feedback.setText(str(exc))
+        self._after_commit = when_ready
+        self.feedback.setText(tr("Applicazione della modifica in corso…"))
+        self.feedback.show()
+        self._enable_editing(False)
+        self.reposition()
+        editor = self.tab.editor
+        self._task('commit', (self._epoch, editor.path), lambda: getattr(editor, method)(*args), priority=10)
+        self.changed.emit()
+
+    def _enable_editing(self, enabled):
+        self.control.setReadOnly(not enabled)
+        self.size.setEnabled(enabled)
+        self.alignment.setEnabled(enabled and isinstance(self.target, ParagraphTarget))
+        self.delete_button.setEnabled(enabled and bool(self.target.text))
+        self.format_panel.setEnabled(enabled)
+        for widget in (self.apply, self.new_button, self.preview, self.format_button,
+                       self.reflow, self.cancel_button, self.done_button):
+            widget.setEnabled(enabled)
+
+    def _commit_completed(self, error):
+        self._finishing = self._font_running = False
+        when_ready, self._after_commit = self._after_commit, None
+        self._enable_editing(True)
+        if error:
+            self.feedback.setText(error)
             self.feedback.show()
             self.reposition()
-            if self.control is not None:
-                self.control.setFocus()
-            return False
-        finally:
-            self._finishing = False
+            self.control.setFocus()
+            self.changed.emit()
+            return
+        page = self.target.page
         self.cancel()
-        return True
+        self.boxes.clear()
+        self.tab.publish_text_revision(page)
+        self._page_changed()
+        self.view.setFocus()
+        if when_ready is not None:
+            when_ready()
 
     def cancel(self):
+        if self._finishing:
+            return
         self._epoch += 1
+        self._preview_cancel.set()
         self._font_timer.stop()
         self._font_running = False
         self._loading = False
         control, self.control = self.control, None
         self.target = None
+        self._format_cursor = None
         self._preview_bbox = None
+        self._preview_image = None
+        with QSignalBlocker(self.preview):
+            self.preview.setChecked(False)
         self.view.edit_target = None
         if control is not None:
             control.hide()
@@ -383,6 +641,8 @@ class InlineText(QObject):
             return
         self._closed = True
         self.active = False
+        for shortcut in self._box_shortcuts:
+            shortcut.setEnabled(False)
         self.cancel()
         self.boxes.clear()
         self.bar.hide()
@@ -408,18 +668,27 @@ class InlineText(QObject):
             height = max(48 if paragraph else 24, round(rect.height()))
             self.control.setGeometry(round(rect.left()), round(rect.top()), max(24, round(rect.width())), height)
             font = QFont(self.target.font.split('+')[-1])
-            font.setBold(bool(self.target.flags & 16))
-            font.setItalic(bool(self.target.flags & 2))
-            pixels = max(6, min(240, round(self.size.value() * abs(transform.m11()))))
+            formatting = self._formatting() if self._format_cursor is None else None
+            bold, italic = formatting[2:4] if formatting is not None else (None, None)
+            bold = bool(self.target.flags & 16) if bold is None else bold
+            italic = bool(self.target.flags & 2) if italic is None else italic
+            font.setBold(bold)
+            font.setItalic(italic)
+            points = self._initial_size if self._format_cursor is not None else self.size.value()
+            pixels = max(6, min(240, round(points * abs(transform.m11()))))
             font.setPixelSize(pixels)
             self.control.setFont(font)
             name = self.target.font.lower()
             family = ('Courier New' if any(part in name for part in ('cour', 'mono')) else
                       'Times New Roman' if any(part in name for part in ('times', 'roman')) else
                       'Arial' if any(part in name for part in ('helv', 'arial', 'sans')) else 'Segoe UI')
-            self.control.setStyleSheet(f"QLineEdit, QPlainTextEdit {{ color: #{self.target.color:06x}; background: white; "
+            if formatting is not None:
+                family = {'helv': 'Arial', 'tiro': 'Times New Roman', 'cour': 'Courier New'}.get(formatting[0], family)
+            color = self.target.color if self._color is None or self._format_cursor is not None else self._color
+            self.control.setStyleSheet(f"QLineEdit, QPlainTextEdit {{ color: #{color:06x}; background: white; "
                                       f"border: 2px solid {theme_color('accent')}; border-radius: 1px; "
                                       f"font-size: {pixels}px; font-family: '{family}'; "
+                                      f"font-weight: {'bold' if bold else 'normal'}; font-style: {'italic' if italic else 'normal'}; "
                                       "padding: 0px; margin: 0px; min-height: 0px; }")
             if paragraph:
                 last = self.control.document().lastBlock()
@@ -427,7 +696,8 @@ class InlineText(QObject):
                 available = self.target.display_layout_bbox
                 limit = transform.mapRect(QRectF(available[0], available[1], available[2]-available[0], available[3]-available[1])).height()
                 self.control.resize(self.control.width(), max(height, min(round(limit), round(content_height))))
-            self.control.setVisible(rect.intersects(QRectF(viewport.rect())))
+            self.control.setVisible((not self.preview.isChecked() or self._preview_image is None)
+                                    and rect.intersects(QRectF(viewport.rect())))
             if rect.intersects(QRectF(12, 12, self.bar.width(), self.bar.height())):
                 bar_y = max(12, viewport.height() - self.bar.height() - 12)
         self.bar.move(12, bar_y)

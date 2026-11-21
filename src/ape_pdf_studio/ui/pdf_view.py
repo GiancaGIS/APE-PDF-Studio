@@ -639,6 +639,8 @@ class TextPdfView(RemotePdfView):
             transform = self.page_transform(page)
             if page in vector_pages:
                 vector_pages[page].paint(painter, transform, viewport.intersected(visible))
+            if self.inline_text:
+                self.inline_text.paint_preview(painter, page, transform)
             if self.form_designer and self.form_designer.isVisible():
                 self.form_designer.paint(painter,page,transform)
             for field in self.form_fields:

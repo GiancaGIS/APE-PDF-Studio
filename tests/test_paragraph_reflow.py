@@ -68,7 +68,10 @@ def test_reflow_saves_wraps_and_preserves_other_content(paragraph_pdf, tmp_path,
             page = document[0]
             span = next(span for block in page.get_text('dict')['blocks'] for line in block.get('lines', [])
                         for span in line['spans'] if 'Alpha paragraph' in span['text'])
-            point = (pymupdf.Rect(span['bbox']).tl + (2, 2)) * page.rotation_matrix
+            matrix = page.rotation_matrix
+            matrix.e *= unit
+            matrix.f *= unit
+            point = (pymupdf.Rect(span['bbox']).tl + (2, 2)) * matrix
             drawings = page.get_drawings()
         target = editor.paragraph_at(0, (point.x, point.y))
         text = 'Updated paragraph ' + 'with automatic word wrapping and more useful text. ' * 5
