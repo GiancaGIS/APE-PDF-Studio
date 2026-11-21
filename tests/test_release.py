@@ -106,30 +106,49 @@ def test_release_refuses_manifest_from_another_bundle(small_release):
 def test_release_archives_and_final_checksums_match_installer(small_release):
     release = small_release
     release_tools.release(release.bundle, release.output)
-    with zipfile.ZipFile(release.output / "APEPDFStudio-1.2.0-Source.zip") as archive:
-        assert archive.read("APE-PDF-Studio-1.2.0/app.py") == (release.root / "app.py").read_bytes()
+    assert not (release.output / "APEPDFStudio-1.2.0-Source.zip").exists()
     with zipfile.ZipFile(release.output / "APEPDFStudio-1.2.0-DependencySources.zip") as archive:
         assert archive.read("sources/upstream.tar.gz") == (release.cache / "upstream.tar.gz").read_bytes()
     installer = release.root / "APEPDFStudio-1.2.0-Setup-x64.exe"
     installer.write_bytes(b"matching installer")
     release_tools.release(release.bundle, release.output, installer)
     sums = (release.output / "APEPDFStudio-1.2.0-SHA256SUMS.txt").read_text().splitlines()
-    assert len(sums) == 3
+    assert len(sums) == 2
     assert sums[0] == f"{release_tools.digest(installer)}  {installer.name}"
-    assert "at no additional charge" in (release.output / "RELEASE_NOTES.md").read_text()
-    with (release.output / "APEPDFStudio-1.2.0-Source.zip").open("ab") as archive:
+    notes = (release.output / "RELEASE_NOTES.md").read_text()
+    assert "at no additional charge" in notes and "archive/refs/tags/v1.2.0.zip" in notes
+    with (release.output / "APEPDFStudio-1.2.0-DependencySources.zip").open("ab") as archive:
         archive.write(b"tampering")
     with pytest.raises(RuntimeError, match="source asset was changed"):
         release_tools.release(release.bundle, release.output, installer)
 
 
-def test_bundle_inventory_rejects_stale_metadata_and_video_codec(tmp_path):
+def test_project_source_inventory_excludes_ignored_local_notes(tmp_path, monkeypatch):
+    monkeypatch.setattr(release_tools, "ROOT", tmp_path)
+    monkeypatch.setattr(release_tools, "SOURCE_DIRS", ("docs",))
+    monkeypatch.setattr(release_tools, "SOURCE_FILES", (".gitignore",))
+    (tmp_path / ".gitignore").write_text("docs/private-notes.md\n*.md.tmp\n")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "private-notes.md").write_text("Local notes")
+    (docs / "README.md").write_text("Public documentation")
+    assert release_tools.project_files() == [tmp_path / ".gitignore", docs / "README.md"]
+
+
+def test_bundle_inventory_rejects_stale_metadata_and_video_codec(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(release_tools.ROOT / 'build_tools/common'))
     legal = tmp_path / "licenses"
     legal.mkdir()
     for name in release_tools.REQUIRED_TEXTS:
         shutil.copyfile(release_tools.ROOT / "licenses" / (name + ".txt"), legal / (name + ".txt"))
     shutil.copyfile(release_tools.ROOT / "LICENSE", legal / "LICENSE")
-    (legal / "dependency-manifest.json").write_text('{"version": "1.2.0", "license": "AGPL-3.0-only", "dependencies": [{"name": "pypdf", "version": "6.19.0"}]}')
+    extension = tmp_path / '_internal/cv2/cv2.pyd'
+    extension.parent.mkdir(parents=True)
+    extension.write_bytes(b'OpenCV extension')
+    inventory = {"version": "1.2.0", "license": "AGPL-3.0-only",
+                 "dependencies": [{"name": "pypdf", "version": "6.19.0"}],
+                 "opencv_build": {"extension_sha256": release_tools.digest(extension)}}
+    (legal / "dependency-manifest.json").write_text(json.dumps(inventory))
     (legal / "upstream-notices.json").write_text("[]")
     package = tmp_path / "_internal/pypdf-6.19.0.dist-info"
     package.mkdir(parents=True)
@@ -146,5 +165,5 @@ def test_bundle_inventory_rejects_stale_metadata_and_video_codec(tmp_path):
     with pytest.raises(RuntimeError, match="Unexpected/stale"):
         release_tools.verify_legal(tmp_path)
     (tmp_path / "_internal/opencv_videoio_ffmpeg500_64.dll").write_bytes(b"codec")
-    with pytest.raises(RuntimeError, match="Unused FFmpeg"):
+    with pytest.raises(RuntimeError, match="Unexpected OpenCV/video library"):
         release_tools.verify_legal(tmp_path)

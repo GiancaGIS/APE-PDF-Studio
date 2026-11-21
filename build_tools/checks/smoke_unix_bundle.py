@@ -1,11 +1,13 @@
 """Exercise the real bundled CLI, preventive check and Qt PDF worker."""
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 from unittest.mock import patch
 
+from docx import Document
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DictionaryObject, NameObject
 
@@ -21,6 +23,21 @@ def smoke(executable):
 
     with tempfile.TemporaryDirectory(prefix='ape-unix-smoke-') as directory:
         folder = Path(directory)
+        root = Path(__file__).resolve().parents[2]
+        form = folder / 'Flat form.pdf'
+        form.write_bytes((root / 'examples/modulo_da_preparare_scansione.pdf').read_bytes())
+        request = json.dumps({'path': str(form), 'pages': [0], 'use_ocr': False}).encode()
+        result = subprocess.run(worker('form_detect', folder), input=request, capture_output=True,
+                                cwd=folder, timeout=60, check=True)
+        proposals = json.loads(result.stdout)['proposals']
+        assert len(proposals) == 5 and any(proposal['kind'] == 'checkbox' for proposal in proposals)
+
+        text = folder / 'Text.pdf'
+        text.write_bytes((root / 'examples/modulo_da_preparare.pdf').read_bytes())
+        docx = folder / 'Export.docx'
+        subprocess.run(worker('docx', folder, text, docx), cwd=folder, timeout=60, check=True)
+        assert any(paragraph.text.strip() for paragraph in Document(docx).paragraphs)
+
         source = folder / 'Source with spaces.pdf'
         output = folder / 'Rotated.pdf'
         writer = PdfWriter()
@@ -48,7 +65,7 @@ def smoke(executable):
         writer.write(blocked)
         result = subprocess.run([*command, str(blocked), 'info'], cwd=folder, timeout=30, capture_output=True)
         assert result.returncode == 2 and b'PDF' in result.stderr, result.stderr
-    print('Bundled CLI, preventive check and Qt PDF rendering passed.')
+    print('Bundled form detection, DOCX export, CLI, preventive check and Qt PDF rendering passed.')
 
 
 if __name__ == '__main__':

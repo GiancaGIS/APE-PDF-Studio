@@ -31,17 +31,18 @@ PyMuPDF/MuPDF build is derived using `scripts/prepare_patched_mupdf.py` and
 `scripts/build_patched_mupdf.ps1`; the manifests record its versions and
 derivation. Regenerate the manifests when dependencies change.
 
-OpenCV's optional `opencv_videoio_ffmpeg*.dll` video helper is excluded from
-the Windows bundle: the application uses OpenCV for PDF images, not video.
-Upstream OpenCV notices are preserved verbatim, including references to
-components from other platforms and optional features. They do not imply that
-all those components are distributed by APE.
+Native installers use OpenCV built with `build_tools/common/build_opencv.py`.
+The verified OpenCV source distribution, build recipe and inventory accompany
+the corresponding source. The build uses the modules needed for PDF image
+processing, with Intel IPP and FFmpeg disabled. The original OpenCV notices
+are retained, including notices for upstream optional features.
 
 ## Source availability and replacing libraries
 
-Every public installer release must be accompanied by the matching application
-source ZIP and dependency-source ZIP at the same download location, at no
-additional charge. See `SOURCE_CODE.md` and `docs/github-release.md`.
+The matching GitHub tag provides the application source for Windows and Linux
+at no charge. The same release page provides the platform dependency-source
+archives. See
+[source and build instructions](SOURCE_CODE.md).
 
 Qt/PySide6 libraries are dynamically loaded from `_internal/PySide6/` and
 `_internal/shiboken6/`. Users may replace/rebuild those libraries and rebuild

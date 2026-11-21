@@ -390,6 +390,14 @@ def main():
                 raise RuntimeError(f"Etichette OCR non riconosciute: {name}")
         passed("Preparazione moduli: riconoscimento digitale, scansioni e OCR locale senza modificare i PDF")
 
+        from docx import Document
+        exported = work / 'opencv-smoke.docx'
+        run('docx', (source, exported))
+        word = Document(exported)
+        if not any('English searchable document' in paragraph.text for paragraph in word.paragraphs):
+            raise RuntimeError('Il worker incluso non ha esportato il testo in DOCX.')
+        passed('Esportazione DOCX dal worker incluso')
+
         form_example = root / "examples/modulo_compilabile.pdf"
         if not form_example.is_file():
             raise RuntimeError("Esempio AcroForm mancante.")

@@ -83,12 +83,6 @@ analysis.pure = [entry for entry in analysis.pure
                  if entry[0]!='ape_pdf_studio' and not entry[0].startswith('ape_pdf_studio.')]
 for path in sorted((compiled_dir/'lib/ape_pdf_studio').rglob('*.pyd')):
     analysis.binaries.append((path.relative_to(compiled_dir/'lib').as_posix(),str(path),'EXTENSION'))
-# PDF image processing does not use OpenCV's optional video codecs. Avoid
-# redistributing its separately licensed, dynamically loaded FFmpeg helper.
-analysis.binaries = [entry for entry in analysis.binaries
-                     if not Path(entry[0]).name.lower().startswith("opencv_videoio_ffmpeg")]
-analysis.datas = [entry for entry in analysis.datas
-                 if not Path(entry[0]).name.lower().startswith("opencv_videoio_ffmpeg")]
 analysis.pure, analysis.datas = public_tables(analysis.pure, analysis.datas, resource_dir / 'public-metadata')
 pyz = PYZ(analysis.pure)
 # Retain the same runtime hooks, but only the intended entry point per EXE.

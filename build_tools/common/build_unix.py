@@ -18,6 +18,7 @@ import tomllib
 from xml.etree import ElementTree
 import zipfile
 
+from build_opencv import source_archive, verify_bundle, verify_installed
 from compile_app_modules import compile_modules
 from release_privacy import check_mupdf_native, check_paths, local_paths, public_tar_owner
 
@@ -119,19 +120,37 @@ def macos_package(bundle, output, stage, app_version, machine, installer_identit
         run('pkgutil', '--check-signature', installer)
 
 
-def source_assets(output, target, app_version, machine):
+def source_assets(output, target, app_version, machine, opencv):
     import pymupdf
     from prepare_release import digest, project_files
     stem = f'APEPDFStudio-{app_version}-{target}-{machine}'
-    inventory = {'platform': platform.platform(), 'python': platform.python_version(),
+    inventory = {'platform': platform.platform(), 'python': platform.python_version(), 'OpenCV': opencv,
                  'MuPDF': pymupdf.mupdf_version,
                  'environment': {dist.metadata['Name']: dist.version for dist in metadata.distributions()
                                  if dist.metadata.get('Name')}}
-    (output / (stem + '-build-environment.json')).write_text(json.dumps(inventory, sort_keys=True, indent=2) + '\n',
-                                                             encoding='utf-8')
-    with zipfile.ZipFile(output / (stem + '-Source.zip'), 'w', zipfile.ZIP_DEFLATED) as archive:
-        for path in project_files():
-            archive.write(path, f'APE-PDF-Studio-{app_version}/' + path.relative_to(ROOT).as_posix())
+    environment = output / (stem + '-build-environment.json')
+    environment.write_text(json.dumps(inventory, sort_keys=True, indent=2) + '\n', encoding='utf-8')
+    original = source_archive(opencv['recipe'])
+    if target == 'linux':
+        with zipfile.ZipFile(output / (stem + '-DependencySources.zip'), 'w', zipfile.ZIP_STORED) as archive:
+            archive.write(original, f'sources/python/{original.name}')
+            archive.write(environment, 'linux-build-environment.json')
+            archive.writestr('README.md', f'''# APE PDF Studio {app_version} Linux build sources
+
+Get the application and build scripts from GitHub's **Source code (zip)**
+for the [matching tag](https://github.com/GiancaGIS/APE-PDF-Studio/archive/refs/tags/v{app_version}.zip).
+Place the original OpenCV archive from `sources/python/` in
+`.dev-deps/legal/sources/` in the source checkout to rebuild OpenCV.
+See `linux-build-environment.json` for the build recipe, versions and hashes.
+Add the corresponding sources and notices for the other bundled dependencies
+before publishing the binaries.
+''')
+    else:
+        with zipfile.ZipFile(output / (stem + '-Source.zip'), 'w', zipfile.ZIP_DEFLATED) as archive:
+            prefix = f'APE-PDF-Studio-{app_version}/'
+            for path in project_files():
+                archive.write(path, prefix + path.relative_to(ROOT).as_posix())
+            archive.write(original, prefix + '.dev-deps/legal/sources/' + original.name, zipfile.ZIP_STORED)
     checksums = [f'{digest(path)}  {path.name}' for path in sorted(output.iterdir())]
     (output / (stem + '-SHA256SUMS.txt')).write_text('\n'.join(checksums) + '\n', encoding='ascii')
 
@@ -160,6 +179,7 @@ def build(args):
     if __version__ != app_version or pymupdf.mupdf_version != '1.28.5':
         raise RuntimeError('Prepare this checkout and corrected MuPDF with prepare_unix.sh.')
     check_mupdf_native()
+    opencv = verify_installed()
     work = ROOT / 'build' / target
     work.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='package-', dir=work) as directory:
@@ -172,6 +192,7 @@ def build(args):
         run(sys.executable, '-m', 'PyInstaller', '--noconfirm', '--distpath', frozen,
             '--workpath', stage / 'pyinstaller', ROOT / 'build_tools/common/APEPDFStudio-unix.spec', env=env)
         bundle = frozen / (APP + '.app' if target == 'macos' else 'APEPDFStudio')
+        verify_bundle(bundle, opencv)
         executable = bundle / ('Contents/MacOS/APEPDFStudio' if target == 'macos' else 'APEPDFStudio')
         check_paths([bundle], local_paths())
         run(sys.executable, ROOT / 'build_tools/checks/smoke_unix_bundle.py', executable)
@@ -181,7 +202,7 @@ def build(args):
             macos_package(bundle, artifacts, stage, app_version, machine, args.installer_identity)
         else:
             linux_package(bundle, artifacts, stage, app_version, machine, skip_deb=args.skip_deb)
-        source_assets(artifacts, target, app_version, machine)
+        source_assets(artifacts, target, app_version, machine, opencv)
         destination = ROOT / 'dist' / target
         destination.mkdir(parents=True, exist_ok=True)
         for path in sorted(artifacts.iterdir()):

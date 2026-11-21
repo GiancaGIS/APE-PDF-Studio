@@ -317,11 +317,18 @@ def copy_source_notices(archive, records, origin=None, depth=0):
 
 def project_files():
     result = [ROOT / name for name in SOURCE_FILES]
+    # Keep literal, ignored files out of the released source inventory. In
+    # particular, local audit notes will not be present in GitHub's tag archive.
+    ignored_files = {
+        pattern for line in (ROOT / '.gitignore').read_text(encoding='utf-8').splitlines()
+        if (pattern := line.strip()) and not pattern.startswith(('#', '!'))
+        and not any(char in pattern for char in '*?[') and not pattern.endswith('/')
+    }
     for name in SOURCE_DIRS:
         for path in (ROOT / name).rglob("*"):
             if not path.is_file() or any(part == "__pycache__" or part.endswith(".egg-info") for part in path.parts):
                 continue
-            if path.suffix in (".pyc", ".pyo"):
+            if path.suffix in (".pyc", ".pyo") or path.relative_to(ROOT).as_posix() in ignored_files:
                 continue
             if not path.resolve().is_relative_to(ROOT):
                 raise RuntimeError(f"Source file escapes the project: {path}")
@@ -330,6 +337,9 @@ def project_files():
 
 
 def prepare(project, installed, offline=False):
+    from build_opencv import PACKAGE as OPENCV_PACKAGE, verify_installed
+
+    opencv = verify_installed()
     CACHE.mkdir(parents=True, exist_ok=True)
     LEGAL.mkdir(parents=True, exist_ok=True)
     for name in REQUIRED_TEXTS:
@@ -348,6 +358,10 @@ def prepare(project, installed, offline=False):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(original, target)
     sources = source_records(installed, offline)
+    opencv_source = next(record for record in sources if record['component'] == OPENCV_PACKAGE)
+    if opencv_source.get('sha256') != opencv['recipe']['source_sha256']:
+        raise RuntimeError('OpenCV source archive differs from the verified build recipe')
+    opencv_source['derivation'] = 'build_tools/common/build_opencv.py'
     def fetch(record):
         archive = download(record["url"], record["filename"], record.get("sha256"), offline)
         record["sha256"] = digest(archive)
@@ -378,7 +392,7 @@ def prepare(project, installed, offline=False):
     inventory = {"application": "APE PDF Studio", "package": project["name"],
                  "version": project["version"], "license": project["license"],
                  "python": ".".join(map(str, sys.version_info[:3])), "platform": "Windows x64",
-                 "native_libraries": native,
+                 "native_libraries": native, "opencv_build": opencv,
                  "dependencies": [{"name": name, "version": package.version,
                                    "license": package.metadata.get("License-Expression") or package.metadata.get("License"),
                                    "urls": package.metadata.get_all("Project-URL", [])}
@@ -391,6 +405,8 @@ def prepare(project, installed, offline=False):
 
 
 def verify_legal(bundle):
+    from build_opencv import verify_bundle
+
     folder = Path(bundle) / "licenses"
     inventory = json.loads((folder / "dependency-manifest.json").read_text(encoding="utf-8"))
     for name in REQUIRED_TEXTS:
@@ -405,8 +421,7 @@ def verify_legal(bundle):
     allowed = {item["name"]: item["version"] for item in inventory["dependencies"]}
     application_package = canonicalize_name(inventory.get("package", "ape-pdf-studio"))
     allowed[application_package] = inventory["version"]
-    if any((Path(bundle) / "_internal").rglob("opencv_videoio_ffmpeg*.dll")):
-        raise RuntimeError("Unused FFmpeg video helper must not be redistributed in the PDF bundle")
+    verify_bundle(Path(bundle) / "_internal", inventory.get("opencv_build", {}))
     for info in (Path(bundle) / "_internal").glob("*.dist-info"):
         package = metadata.PathDistribution(info)
         name = canonicalize_name(package.metadata["Name"])
@@ -428,35 +443,30 @@ def release(bundle, output, installer=None):
         raise RuntimeError("Application source changed since license preparation; rebuild before releasing")
     version = inventory["version"]
     output.mkdir(parents=True, exist_ok=True)
-    application_archive = output / f"APEPDFStudio-{version}-Source.zip"
     dependencies_archive = output / f"APEPDFStudio-{version}-DependencySources.zip"
     if installer:
         sums = output / f"APEPDFStudio-{version}-SHA256SUMS.txt"
         expected = {line.split("  ", 1)[1]: line.split("  ", 1)[0] for line in sums.read_text().splitlines()}
-        for path in (application_archive, dependencies_archive):
-            if digest(path) != expected[path.name]:
-                raise RuntimeError("Prepared source asset was changed")
+        if digest(dependencies_archive) != expected.get(dependencies_archive.name):
+            raise RuntimeError("Prepared source asset was changed")
         sums.write_text("".join(f"{digest(path)}  {path.name}\n" for path in
-                                (installer, application_archive, dependencies_archive)), encoding="ascii")
+                                (installer, dependencies_archive)), encoding="ascii")
         (output / "RELEASE_NOTES.md").write_text(
             f"# APE PDF Studio {version}\n\n"
             "PDF reader and editor by GiancaGIS, licensed under **GNU AGPLv3 only**.\n\n"
             "Windows x64; includes the GUI, CLI, optional Explorer previews, and local Italian/English OCR.\n\n"
-            "Download the installer and its matching corresponding source from this release:\n\n"
-            f"- `{installer.name}`\n- `{application_archive.name}`\n- `{dependencies_archive.name}`\n"
+            "Download the installer and its corresponding source from this release.\n\n"
+            f"- `{installer.name}`\n- `{dependencies_archive.name}`\n"
             f"- `{sums.name}`\n\n"
-            "The source ZIPs include application/native source, build scripts, the exact dependency lock, "
-            "and original upstream source archives. Third-party components retain their own licenses. "
+            f"Use GitHub's [Source code (zip)](https://github.com/GiancaGIS/APE-PDF-Studio/archive/refs/tags/v{version}.zip) "
+            "for the application, native source, build scripts and dependency lock. "
+            "The dependency archive includes the original upstream sources and the source file manifest. "
+            "Third-party components retain their own licenses. "
             "See LICENSE, THIRD_PARTY_NOTICES.md and SOURCE_CODE.md.\n\n"
             "Source downloads are provided at no additional charge. Preserve these assets with the installer.\n",
             encoding="utf-8")
         print(f"[release] Installer and source checksums finalized: {output}", flush=True)
         return
-    with zipfile.ZipFile(application_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in project_files():
-            archive.write(path, f"APE-PDF-Studio-{version}/" + path.relative_to(ROOT).as_posix())
-        for name in ("source-manifest.json", "dependency-manifest.json"):
-            archive.write(LEGAL / name, f"APE-PDF-Studio-{version}/" + name)
     with zipfile.ZipFile(dependencies_archive, "w", compression=zipfile.ZIP_STORED) as archive:
         for record in manifest["archives"]:
             path = CACHE / record["filename"]
@@ -468,7 +478,7 @@ def release(bundle, output, installer=None):
     if dependencies_archive.stat().st_size >= 2 * 1024**3:
         raise RuntimeError("Dependency sources exceed the GitHub per-asset limit; split before publication")
     checksums = output / f"APEPDFStudio-{version}-SHA256SUMS.txt"
-    checksums.write_text("".join(f"{digest(path)}  {path.name}\n" for path in (application_archive, dependencies_archive)), encoding="ascii")
+    checksums.write_text(f"{digest(dependencies_archive)}  {dependencies_archive.name}\n", encoding="ascii")
     print(f"[release] Source assets: {output}", flush=True)
 
 

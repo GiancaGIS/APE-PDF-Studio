@@ -24,6 +24,7 @@ if ! "$python" build_tools/common/release_privacy.py --mupdf-native >/dev/null 2
     "$python" build_tools/common/release_privacy.py --mupdf-native
 fi
 "$python" -m pip install --disable-pip-version-check -e '.[installer,dev]'
+"$python" build_tools/common/build_opencv.py
 if [[ "$(uname -s)" == Darwin ]]; then
     # PyInstaller converts the repository's PNG master to the bundle's ICNS.
     "$python" -m pip install --disable-pip-version-check Pillow
