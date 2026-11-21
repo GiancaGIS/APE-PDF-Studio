@@ -109,6 +109,15 @@ def test_unsupported_packaging_fails_explicitly(monkeypatch):
         build.command([])
 
 
+@pytest.mark.parametrize('script', ['run_linux.sh', 'run_mac.command',
+                                    'build_tools/common/prepare_unix.sh',
+                                    'build_tools/linux/build_linux_installer.sh',
+                                    'build_tools/linux/build_linux_wsl.sh',
+                                    'build_tools/macos/build_macos_app.sh'])
+def test_unix_shell_scripts_use_lf(script):
+    assert b'\r' not in (ROOT / script).read_bytes()
+
+
 @pytest.mark.parametrize('platform,script', [('linux', 'build_tools/linux/build_linux_installer.sh'),
                                             ('darwin', 'build_tools/macos/build_macos_app.sh')])
 def test_native_build_dispatcher_uses_platform_script(monkeypatch, platform, script):
@@ -133,7 +142,7 @@ def test_help_works_from_another_directory(tmp_path, entry):
 def test_corresponding_source_includes_build_procedures_and_entry_points():
     release = load('release_layout_tested', 'build_tools/common/prepare_release.py')
     paths = {path.relative_to(ROOT).as_posix() for path in release.project_files()}
-    assert {'run_windows.bat', 'run_linux.sh', 'run_mac.command', 'scripts/build.py', 'scripts/prepare_build.py',
+    assert {'.gitattributes', 'run_windows.bat', 'run_linux.sh', 'run_mac.command', 'scripts/build.py', 'scripts/prepare_build.py',
             'build_tools/windows/APEPDFStudio.spec', 'build_tools/windows/APEPDFStudio.iss',
             'build_tools/windows/build_windows_installer.ps1', 'build_tools/common/prepare_release.py',
             'docs/distribuzione/README.md'} <= paths

@@ -74,6 +74,7 @@ def window(app, text_pdf, monkeypatch):
         widget.tabs.removeTab(index)
         tab.deleteLater()
     widget.close()
+    widget.deleteLater()
     QTest.qWait(20)
     assert not errors
 
