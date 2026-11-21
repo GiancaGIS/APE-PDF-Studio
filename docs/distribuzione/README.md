@@ -6,6 +6,12 @@ Document processing stays local. Windows x64 is the verified platform.
 
 ## Build metadata
 
+Native installers compile OpenCV from a versioned source archive after checking
+its SHA-256. The wheel is built in a separate temporary virtualenv with Intel
+IPP and FFmpeg disabled. Installer builds verify the wheel and retain its build
+record. On Windows, run `.venv-build/Scripts/python.exe build_tools/common/build_opencv.py`
+before using `-SkipDependencyInstall` with an existing virtualenv.
+
 The frozen packages omit pip installation-origin records (`direct_url.json`)
 and replace local PyMuPDF source locations and git diagnostics with neutral
 build metadata. Native application compilation maps checkout paths to relative
@@ -54,7 +60,7 @@ Existing suitable environments are reused.
 # Prepare/check dependencies without compiling the application or installer.
 .\build_tools\windows\build_installer.bat -PrepareOnly
 
-# Standalone folder, source ZIPs and checks; no Inno Setup required.
+# Standalone folder, dependency sources and checks; no Inno Setup required.
 .\build_tools\windows\build_installer.bat -BundleOnly
 
 # Reuse a prepared environment without installing dependencies.
@@ -85,14 +91,15 @@ command forwards to this procedure.
 | --- | --- |
 | `dist/APEPDFStudio/` | Standalone GUI, private worker, CLI, sandbox, shell DLL, runtime and legal documents |
 | `dist/installer/` | `APEPDFStudio-<version>-Setup-x64.exe` |
-| `dist/release/` | Corresponding application/dependency source ZIPs, checksums and release notes |
+| `dist/release/` | Dependency source ZIP, checksums and release notes |
 | `build/windows/` | Intermediate native/PYD builds, inventory and smoke reports |
 | `.dev-deps/` | Verified source/wheel/model caches and development worker runtime |
 
-Distribute the whole standalone folder, or its installer, with the matching
-source assets. Do not publish caches, virtualenvs, compiler intermediates or
-personal files. Source archives include the maintained build tools, entry points,
-native sources, exact dependency lock and this guide. See
+Distribute the standalone folder or installer with the matching dependency
+source archive and checksums. Tag the exact build commit as `v<version>` so
+GitHub's automatic source archive includes the build tools, entry points,
+native sources and dependency lock. Keep caches, virtualenvs, compiler
+intermediates and personal files outside the release. See
 [`SOURCE_CODE.md`](../../SOURCE_CODE.md) and
 [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md).
 
@@ -163,8 +170,11 @@ and the PKG is unsigned. Notarization is a separate release step.
 
 Both flows compile the application modules with Cython, package Python and
 Qt, and exercise the frozen CLI, PDF preflight and Qt PDF renderer before
-packaging. The environment report, corresponding application source ZIP, and
-SHA-256 checksums accompany the local development build. Prepare and verify
+packaging. Both builds produce an environment report and SHA-256 checksums.
+For Linux, GitHub generates the application source ZIP from the matching tag.
+The local `DependencySources.zip` contains the original OpenCV source used for
+that Linux build. The macOS development build includes an application source
+ZIP with OpenCV. Prepare and verify
 the matching third-party source and notices for the actual build environment
 before public distribution. Windows AppContainer and its integrity bootstrap
 are Windows-specific. Linux/macOS keep the separate workers and resource limits.

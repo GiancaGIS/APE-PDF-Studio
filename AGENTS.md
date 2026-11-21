@@ -145,3 +145,26 @@ $agentTestTemp = 'build/pytest-agent-' + [guid]::NewGuid().ToString('N')
 - When reporting completion, describe the result, checks actually performed
   and any limitations. Distinguish source changes, rebuilt installers and GitHub
   pipeline runs actually performed: do not present them as equivalent.
+
+### License audit for distribution
+
+- Review licensing when dependencies, native build options or bundled assets
+  change. Before a public release, inspect the final package for each platform.
+  Include transitive dependencies, native libraries inside wheels, installer
+  runtimes, and bundled fonts, OCR data and examples. Verify the license and
+  redistribution terms for the exact versions and enabled components.
+- Verify that the package contains the required license texts, copyright notices
+  and attributions. Where a license requires corresponding source or permits
+  replacing a library, verify that the published sources, build instructions
+  and package layout support those rights. Keep `SOURCE_CODE.md`,
+  `THIRD_PARTY_NOTICES.md` and the release manifests in sync with the artifacts.
+- For Windows and Linux releases, use GitHub's **Source code (zip)** for the
+  application source. Check that the release tag points to the build's source
+  commit and includes the required build scripts and patches. Avoid uploading a
+  duplicate application source ZIP. Publish the matching dependency sources per
+  platform as documented in `SOURCE_CODE.md`. Reuse a shared archive only after
+  verifying the required source version and hash.
+- Check that the final release file list and checksums match the packages and
+  source archives being distributed. Retain the tags and source assets needed
+  for earlier releases. Document unresolved license or source gaps and report
+  which artifacts and obligations the audit actually covered.

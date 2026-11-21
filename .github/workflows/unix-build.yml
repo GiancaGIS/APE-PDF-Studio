@@ -35,7 +35,8 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential dpkg-dev libgl1 libegl1 libx11-xcb1 libxcb-cursor0 +            libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1
+          sudo apt-get install -y build-essential dpkg-dev libgl1 libegl1 libx11-xcb1 libxcb-cursor0 \
+            libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1
       - name: Prepare isolated build environment
         run: |
           python -m venv .venv-build

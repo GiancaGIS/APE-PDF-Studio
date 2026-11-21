@@ -86,6 +86,11 @@ try {
     if ($PrepareOnly) { Write-Host "Ambiente pronto: $PythonExe. Rilancia il BAT per compilare."; return }
 
     if (-not $SkipBuild) {
+        $opencvArguments = @()
+        if ($SkipDependencyInstall) { $opencvArguments += '--check' }
+        Write-Host '[APE] Verifico OpenCV senza Intel IPP e FFmpeg...'
+        & $PythonExe (Join-Path $projectRoot 'build_tools\common\build_opencv.py') @opencvArguments
+        if ($LASTEXITCODE -ne 0) { throw 'OpenCV non pronto. Esegui build_opencv.py nel virtualenv oppure ricompila senza -SkipDependencyInstall.' }
         # Refresh application metadata even when third-party dependencies are
         # already installed: copy_metadata must bundle the current version.
         & $PythonExe -m pip install --no-index --no-build-isolation --no-deps --disable-pip-version-check -e '.'

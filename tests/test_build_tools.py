@@ -1,5 +1,6 @@
 """Build entry points, venv-only preparation and corresponding-source layout."""
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -22,6 +23,45 @@ def load(name, path):
 prepare = load('prepare_build_tested', 'scripts/prepare_build.py')
 build = load('build_entry_tested', 'scripts/build.py')
 privacy = load('release_privacy_tested', 'build_tools/common/release_privacy.py')
+opencv = load('build_opencv_tested', 'build_tools/common/build_opencv.py')
+
+
+@pytest.mark.parametrize('line', ['Intel IPP: 2026.0.0', 'Intel IPP IW: sources', 'FFMPEG: YES'])
+def test_opencv_build_report_rejects_enabled_redistributed_features(line):
+    with pytest.raises(RuntimeError, match='disabled component'):
+        opencv.verify_features(line)
+    opencv.verify_features('  Intel IPP: NO\n    FFMPEG: NO')
+
+
+@pytest.mark.parametrize('filename', ['opencv_videoio_ffmpeg500_64.dll', 'libavcodec-123abc.so.63', 'libswscale.so.10'])
+def test_opencv_bundle_rejects_unused_video_libraries(filename):
+    with pytest.raises(RuntimeError, match='Unexpected OpenCV/video library'):
+        opencv.verify_payload([Path('opencv_python_headless.libs') / filename])
+    opencv.verify_payload(['cv2/cv2.pyd', 'libavif.so.16'])
+
+
+@pytest.mark.skipif(sys.platform == 'darwin', reason='macOS rewrites the packaged Mach-O extension')
+def test_opencv_bundle_requires_exact_extension_from_build(tmp_path):
+    extension = tmp_path / 'cv2/cv2.pyd'
+    extension.parent.mkdir()
+    extension.write_bytes(b'verified OpenCV extension')
+    record = {'extension_sha256': opencv.digest(extension)}
+    opencv.verify_bundle(tmp_path, record)
+    extension.write_bytes(b'upstream wheel substituted')
+    with pytest.raises(RuntimeError, match='verified OpenCV extension'):
+        opencv.verify_bundle(tmp_path, record)
+
+
+def test_opencv_source_extracts_directly_into_short_build_path(tmp_path):
+    source = tmp_path / 'opencv_python_headless-version.tar.gz'
+    with tarfile.open(source, 'w:gz') as archive:
+        member = tarfile.TarInfo('opencv_python_headless-version/setup.py')
+        data = b'# source\n'
+        member.size = len(data)
+        archive.addfile(member, io.BytesIO(data))
+    checkout = opencv.unpack_source(source, tmp_path)
+    assert checkout == tmp_path / 'src'
+    assert (checkout / 'setup.py').read_bytes() == data
 
 
 def test_environment_inspection_is_read_only_and_checks_native_version(monkeypatch):
@@ -146,6 +186,42 @@ def test_corresponding_source_includes_build_procedures_and_entry_points():
             'build_tools/windows/APEPDFStudio.spec', 'build_tools/windows/APEPDFStudio.iss',
             'build_tools/windows/build_windows_installer.ps1', 'build_tools/common/prepare_release.py',
             'docs/distribuzione/README.md'} <= paths
+
+
+@pytest.mark.parametrize('target', ['linux', 'macos'])
+def test_unix_source_assets_preserve_opencv_source(tmp_path, monkeypatch, target):
+    monkeypatch.syspath_prepend(str(ROOT / 'build_tools/common'))
+    unix = load('build_unix_tested', 'build_tools/common/build_unix.py')
+    import prepare_release
+
+    source = tmp_path / 'opencv_python_headless-version.tar.gz'
+    source.write_bytes(b'OpenCV source archive')
+    app = tmp_path / 'pyproject.toml'
+    app.write_text('[project]\n', encoding='utf-8')
+    output = tmp_path / 'artifacts'
+    output.mkdir()
+    monkeypatch.setattr(unix, 'source_archive', lambda recipe: source)
+    monkeypatch.setattr(unix, 'ROOT', tmp_path)
+    monkeypatch.setattr(prepare_release, 'project_files', lambda: [app])
+
+    unix.source_assets(output, target, '1.3.1', 'x86_64', {'recipe': {}})
+
+    stem = f'APEPDFStudio-1.3.1-{target}-x86_64'
+    if target == 'linux':
+        dependency_zip = output / f'{stem}-DependencySources.zip'
+        assert not (output / f'{stem}-Source.zip').exists()
+        with zipfile.ZipFile(dependency_zip) as archive:
+            assert archive.read(f'sources/python/{source.name}') == source.read_bytes()
+            assert b'/archive/refs/tags/v1.3.1.zip' in archive.read('README.md')
+            assert archive.read('linux-build-environment.json') == (output / f'{stem}-build-environment.json').read_bytes()
+        assert f'{prepare_release.digest(dependency_zip)}  {dependency_zip.name}' in (
+            output / f'{stem}-SHA256SUMS.txt'
+        ).read_text(encoding='ascii').splitlines()
+    else:
+        prefix = 'APE-PDF-Studio-1.3.1/'
+        with zipfile.ZipFile(output / f'{stem}-Source.zip') as archive:
+            assert archive.read(prefix + 'pyproject.toml') == app.read_bytes()
+            assert archive.read(prefix + '.dev-deps/legal/sources/' + source.name) == source.read_bytes()
 
 
 def test_ci_calls_existing_tools():

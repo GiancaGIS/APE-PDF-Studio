@@ -2,11 +2,14 @@
 
 Copyright (C) 2026 GiancaGIS. APE PDF Studio is licensed under AGPL-3.0-only.
 
-The **same download location as the Windows installer** provides, at no additional
-charge, these matching release assets:
+The **same GitHub release as the Windows and Linux installers** provides the
+application source through **Source code (zip)** at no additional charge.
+GitHub generates this archive from the `v<version>` tag. It contains the
+application, native shell extension, artwork, build scripts, tests, license
+texts and exact dependency lock from the build's source commit.
 
-- `APEPDFStudio-<version>-Source.zip`: application, native shell extension,
-  artwork, build scripts, tests, license texts and exact dependency lock.
+The Windows release files include the following.
+
 - `APEPDFStudio-<version>-DependencySources.zip`: original source distributions
   of runtime/build dependencies, Qt, PySide/Shiboken, Qt PDF/WebEngine/PDFium,
   CPython and the OCR data. Includes separate MuPDF and its third-party sources.
@@ -18,16 +21,18 @@ The installed `licenses/source-manifest.json` records each upstream archive's
 filename, version, URL and SHA-256, plus the application source file hashes.
 `licenses/dependency-manifest.json` identifies the packages used for that build.
 It also records native versions independently of their Python bindings.
-The ZIPs contain those manifests too. Request/download the assets belonging to
-your installer version, rather than the current development branch.
+The dependency ZIP also contains both manifests. Download the tagged source
+and dependency archive belonging to your installer version.
 
-For Linux and macOS development packages, see the
-[native build guide](docs/distribuzione/README.md) and the source ZIP and
-environment inventory produced by their build procedure.
+For Linux, use the same tagged application source with the matching
+`APEPDFStudio-<version>-linux-<architecture>-DependencySources.zip`. Its
+source records identify any dependency archives shared with Windows.
+For macOS development packages, see the source ZIP and build environment
+inventory. Build instructions are in the [native build guide](docs/distribuzione/README.md).
 
 ## Rebuild the application on Windows x64
 
-1. Unpack the application source ZIP. Install the CPython version recorded in
+1. Unpack GitHub's **Source code (zip)** from the matching version tag. Install the CPython version recorded in
    `dependency-manifest.json` (the current release uses Python 3.14.5 x64).
 2. Install Visual Studio/Build Tools with Desktop development with C++, x64
    MSVC and Windows SDK; install Inno Setup 6.3 or later to build the installer.
@@ -39,6 +44,7 @@ environment inventory produced by their build procedure.
    .\build_tools\windows\build_patched_mupdf.ps1 -PythonExe .\.venv-build\Scripts\python.exe
    .\.venv-build\Scripts\python.exe -m pip install --find-links .dev-deps/patched-wheels -r requirements-release.txt
    .\.venv-build\Scripts\python.exe -m pip install --no-build-isolation --no-deps -e .
+   .\.venv-build\Scripts\python.exe build_tools/common/build_opencv.py
    .\build_tools\windows\build_windows_installer.ps1 -PythonExe .\.venv-build\Scripts\python.exe -SkipDependencyInstall
    ```
 
@@ -58,6 +64,16 @@ version is pinned in the release requirements; its source and license accompany
 the dependency archive. PyInstaller analyzes the original imports but ships our
 compiled extensions instead of Python source/bytecode modules. Minimal EXE entry
 points and the pre-import integrity bootstrap remain inside the EXEs.
+
+The native packaging flows build OpenCV from the verified upstream Python
+source distribution using `build_tools/common/build_opencv.py`. The recipe
+disables Intel IPP and FFmpeg, keeps the image-processing modules used by the
+application, and removes private paths from the native build report. The
+inventory records the source archive hash, CMake options and extension hash.
+On Linux, the dependency archive contains the original OpenCV source
+distribution under `sources/python/`. Place it in `.dev-deps/legal/sources/`
+of the tagged application checkout to reuse it. The macOS development source
+ZIP includes it in this cache directory.
 
 `build_tools/common/prepare_bundle_integrity.py` generates the application hash manifest
 and the digest embedded in each launcher. Modified builds regenerate both;
@@ -98,8 +114,8 @@ relink, run replacement libraries and reverse engineer for debugging them.
 
 ## Redistributing a release
 
-Publish the installer **and all matching source assets together**. Retain the
-copyright and license notices. Preserve the release assets so recipients of
-older installers can still obtain their corresponding source. A link to an
-upstream project's latest branch does not replace the exact source archives.
-`docs/github-release.md` describes the release procedure.
+Publish the installer and matching dependency archive on the release tagged
+`v<version>`. Tag the exact commit used for the build and retain all relevant
+copyright and license notices. Preserve the tags and dependency assets so
+recipients of older installers can still obtain their corresponding source.
+See the [build and distribution guide](docs/distribuzione/README.md#windows).

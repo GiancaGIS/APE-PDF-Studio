@@ -492,10 +492,10 @@ Third-party libraries retain their own licenses; see
 
 Windows releases include full license texts and an inventory of their exact
 dependencies. Open **Help → Licenses and source code** to read them in the app.
-Each installer release must include its matching application and dependency
-source archives, with SHA-256 checksums, at the same download location.
-See [source and rebuild instructions](SOURCE_CODE.md) and the
-[GitHub release guide](docs/github-release.md).
+For Windows and Linux, the release tag provides the application source through GitHub's
+**Source code (zip)**. The same page provides matching dependency sources and
+SHA-256 checksums. See [source and rebuild instructions](SOURCE_CODE.md) and
+the [build and distribution guide](docs/distribuzione/README.md#windows).
 
 - [QtPdf](https://doc.qt.io/qtforpython-6/PySide6/QtPdf/index.html)
 - [QPdfView](https://doc.qt.io/qtforpython-6/PySide6/QtPdfWidgets/QPdfView.html)
