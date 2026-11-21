@@ -13,7 +13,7 @@ from ape_pdf_studio.ui.remote_pdf import RemoteDocument
 from test_gui import app, text_pdf, window, wait_for, wait_for_tiles
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("generate_complex_cjk_example", ROOT / "scripts/generate_complex_cjk_example.py")
+spec = importlib.util.spec_from_file_location("generate_complex_cjk_example", ROOT / "scripts/examples/generate_complex_cjk_example.py")
 generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
 

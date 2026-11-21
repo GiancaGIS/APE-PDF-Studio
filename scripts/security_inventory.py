@@ -71,6 +71,7 @@ def inventory():
                 'https://chromereleases.googleblog.com/search/label/Stable%20updates',
             ]}
     if sys.platform=='win32':
+        sys.path.insert(0,str(ROOT/'build_tools/common'))
         from prepare_release import native_versions
         result['native']=native_versions()
     return result

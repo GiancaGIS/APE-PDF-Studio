@@ -8,7 +8,8 @@ __pycache__/
 dist/
 build/
 *.spec
-!installer/APEPDFStudio.spec
+!build_tools/windows/APEPDFStudio.spec
+!build_tools/common/APEPDFStudio-unix.spec
 .DS_Store
 .idea/
 .vscode/
@@ -18,3 +19,4 @@ examples/README.md
 docs/cjk-compatibility.md
 docs/windows-installer.md
 docs/github-release.md
+plan.md

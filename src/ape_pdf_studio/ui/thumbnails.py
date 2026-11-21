@@ -91,6 +91,13 @@ class ThumbnailList(QListWidget):
         self.blockSignals(False)
         self.schedule()
 
+    def refresh_content(self, page):
+        self.cache.pop(page, None)
+        self._requests.clear()
+        self._renderer.setDocument(self.document)
+        self.viewport().update()
+        self.schedule()
+
     def schedule(self, *_):
         self._timer.start(20)
 

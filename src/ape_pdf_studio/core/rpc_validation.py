@@ -1,4 +1,5 @@
 """Validate worker records before they reach Qt or application state."""
+from datetime import datetime, timedelta
 import math
 
 
@@ -26,6 +27,22 @@ def record(name,data):
         if set(data['findings'])-set(FINDINGS) or type(data['memory_limited'])is not bool:raise ValueError('Invalid security report')
     elif name=='SignatureInfo':
         for value in data.values():text(value)
+    elif name=='SignatureCertificate':
+        for key in ('subject','issuer'):text(data[key],4096)
+        serial=data['serial']
+        text(serial,128)
+        digits=serial.removeprefix('-')
+        if not digits or any(c not in '0123456789ABCDEF' for c in digits):
+            raise ValueError('Invalid certificate serial number')
+        for key in ('valid_from','valid_until'):
+            text(data[key],25)
+            if len(data[key])!=25 or datetime.fromisoformat(data[key]).utcoffset()!=timedelta(0):
+                raise ValueError('Invalid certificate date')
+        fingerprint=data['sha256']
+        text(fingerprint,64)
+        if len(fingerprint)!=64 or any(c not in '0123456789abcdef' for c in fingerprint):
+            raise ValueError('Invalid certificate fingerprint')
+        if type(data['referenced'])is not bool:raise ValueError('Invalid certificate association')
     elif name=='DocumentInfo':
         from .document_info import SignatureInfo
         if data['pdfa'] is not None:text(data['pdfa'],32)
@@ -62,10 +79,16 @@ def record(name,data):
         for x in data['address']:integer(x,0,1000000)
         geometry(data['bbox']);geometry(data['display_bbox']);geometry(data['origin'],2)
         geometry((data['size'],),1);integer(data['color'],0,0xffffff);integer(data['flags'])
+        identity=data['identity']
+        if not isinstance(identity,str) or len(identity)!=64 or any(c not in '0123456789abcdef' for c in identity):
+            raise ValueError('Invalid text target identity')
         if name=='ParagraphTarget':
             from .text_edit import TextTarget
+            from .paragraph_edit import NEW_BLOCK
             members=data['members']
-            if not isinstance(members,tuple) or not 1<=len(members)<=2000 or any(type(m)is not TextTarget for m in members):raise ValueError('Invalid paragraph members')
+            if (not isinstance(members,tuple) or len(members)>2000 or any(type(m)is not TextTarget for m in members)
+                    or (not members) != (data['address']==NEW_BLOCK) or not members and data['text']):
+                raise ValueError('Invalid paragraph members')
             if (sum(len(m.text) for m in members)>16000 or any(m.page!=data['page'] or m.revision!=data['revision'] for m in members)
                     or len({m.address for m in members})!=len(members) or not .5<=data['size']<=300):raise ValueError('Inconsistent paragraph members')
             text(data['text'],16000)
@@ -73,6 +96,8 @@ def record(name,data):
             for box in (data['bbox'],data['display_bbox'],data['layout_bbox'],data['display_layout_bbox']):
                 if box[2]<=box[0] or box[3]<=box[1]:raise ValueError('Invalid paragraph area')
             geometry((data['leading'],data['first_indent'],data['continuation_indent']),3)
+            geometry((data['column_limit'],),1)
+            if not 0<data['column_limit']<=14400:raise ValueError('Invalid available paragraph width')
             if not 0<data['leading']<=1000 or data['first_indent']<0 or data['continuation_indent']<0:raise ValueError('Invalid paragraph spacing')
             integer(data['alignment'],0,3)
             if type(data['rotation'])is not int or data['rotation']not in (0,90,180,270):raise ValueError('Invalid paragraph rotation')
@@ -102,6 +127,11 @@ def result(method,value):
         integer(value['width'],1,2048);integer(value['height'],1,2048)
     elif method == 'insert_signature':
         if value is not None:raise ValueError('Invalid signature edit response')
+    elif method == 'signature_certificates':
+        from .document_info import MAX_SIGNATURE_CERTIFICATES, SignatureCertificate
+        if (not isinstance(value,tuple) or len(value)>MAX_SIGNATURE_CERTIFICATES
+                or any(type(certificate)is not SignatureCertificate for certificate in value)):
+            raise ValueError('Invalid certificate list')
     elif method == 'ink':
         if (not isinstance(value,dict) or set(value)!={'rows','truncated'} or
                 type(value['truncated']) is not bool or not isinstance(value['rows'],list) or len(value['rows'])>2000):
@@ -127,14 +157,30 @@ def result(method,value):
         for box in value:
             geometry(box)
             if box[2]<=box[0] or box[3]<=box[1]:raise ValueError('Invalid text box area')
-    elif method=='paragraph_at':
+    elif method in ('paragraph_at','new_paragraph_at'):
         from .paragraph_edit import ParagraphTarget
         if type(value)is not ParagraphTarget:raise ValueError('Invalid paragraph target')
-    elif method=='paragraph_info':
-        if not isinstance(value,dict) or set(value)!={'bbox','lines','font','fallback','fits','message'}:raise ValueError('Invalid paragraph layout')
+    elif method in ('paragraph_info','text_preview'):
+        if not isinstance(value,dict) or set(value)!={'bbox','lines','font','fallback','fits','message','runs','raster'}:raise ValueError('Invalid text layout')
         geometry(value['bbox']);integer(value['lines'],0,2000);text(value['font'],4096);text(value['message'],4096)
         if type(value['fits'])is not bool or type(value['fallback'])is not bool:raise ValueError('Invalid paragraph layout flag')
         if value['bbox'][2]<=value['bbox'][0] or value['bbox'][3]<=value['bbox'][1]:raise ValueError('Invalid paragraph layout area')
+        runs=value['runs']
+        if not isinstance(runs,list) or len(runs)>4000:raise ValueError('Invalid text runs')
+        for run in runs:
+            if not isinstance(run,tuple) or len(run)!=6:raise ValueError('Invalid text run')
+            word, origin, size, color, font, box=run
+            text(word,16000);geometry(origin,2);geometry((size,),1);integer(color,0,0xffffff)
+            text(font,4096);geometry(box)
+            if not .01<=size<=180000 or box[2]<box[0] or box[3]<box[1]:raise ValueError('Invalid text run geometry')
+        if sum(len(run[0]) for run in runs)>16000 or not value['fits'] and runs:
+            raise ValueError('Inconsistent text layout')
+        if value['raster'] is not None:
+            raster=value['raster']
+            if not value['fits'] or not isinstance(raster,tuple) or len(raster)!=3:raise ValueError('Invalid text preview')
+            bounds,width,height=raster
+            geometry(bounds);integer(width,1,1024);integer(height,1,1024)
+            if bounds[2]<=bounds[0] or bounds[3]<=bounds[1]:raise ValueError('Invalid text preview area')
     elif method=='text_at':
         from .text_edit import TextTarget
         if not isinstance(value,TextTarget):raise ValueError('Invalid text target')

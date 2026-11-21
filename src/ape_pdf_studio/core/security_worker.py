@@ -7,12 +7,20 @@ from pathlib import Path
 import sys
 
 
-def limit_memory():
+def limit_memory(*, renderer=False):
     limit = 768 * 1024 * 1024
     if os.name != "nt":
         try:
             import resource
-            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+            if renderer and sys.platform == 'linux':
+                # Qt PDF's allocator reserves 32 GiB of inaccessible address
+                # space. Cap writable data/mappings separately from that
+                # reservation. Other workers retain the smaller address cap.
+                resource.setrlimit(resource.RLIMIT_DATA, (limit, limit))
+                address_limit = 48 * 1024**3
+            else:
+                address_limit = limit
+            resource.setrlimit(resource.RLIMIT_AS, (address_limit, address_limit))
             return True
         except (ImportError, OSError, ValueError):
             return False
@@ -60,8 +68,8 @@ def limit_memory():
         return False
 
 
-def require_memory_limit():
-    if not limit_memory():
+def require_memory_limit(*, renderer=False):
+    if not limit_memory(renderer=renderer):
         raise RuntimeError("Cannot enforce the PDF worker memory limit")
     return True
 

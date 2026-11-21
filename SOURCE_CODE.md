@@ -2,7 +2,7 @@
 
 Copyright (C) 2026 GiancaGIS. APE PDF Studio is licensed under AGPL-3.0-only.
 
-The **same download location as the installer** provides, at no additional
+The **same download location as the Windows installer** provides, at no additional
 charge, these matching release assets:
 
 - `APEPDFStudio-<version>-Source.zip`: application, native shell extension,
@@ -21,6 +21,10 @@ It also records native versions independently of their Python bindings.
 The ZIPs contain those manifests too. Request/download the assets belonging to
 your installer version, rather than the current development branch.
 
+For Linux and macOS development packages, see the
+[native build guide](docs/distribuzione/README.md) and the source ZIP and
+environment inventory produced by their build procedure.
+
 ## Rebuild the application on Windows x64
 
 1. Unpack the application source ZIP. Install the CPython version recorded in
@@ -32,17 +36,17 @@ your installer version, rather than the current development branch.
 
    ```powershell
    py -3.14 -m venv .venv-build
-   .\scripts\build_patched_mupdf.ps1 -PythonExe .\.venv-build\Scripts\python.exe
+   .\build_tools\windows\build_patched_mupdf.ps1 -PythonExe .\.venv-build\Scripts\python.exe
    .\.venv-build\Scripts\python.exe -m pip install --find-links .dev-deps/patched-wheels -r requirements-release.txt
    .\.venv-build\Scripts\python.exe -m pip install --no-build-isolation --no-deps -e .
-   .\scripts\build_installer.ps1 -PythonExe .\.venv-build\Scripts\python.exe -SkipDependencyInstall
+   .\build_tools\windows\build_windows_installer.ps1 -PythonExe .\.venv-build\Scripts\python.exe -SkipDependencyInstall
    ```
 
    The dependency lock fixes package versions. Network access is needed to
    retrieve packages and verify upstream source archives on the first build.
    To reuse release source archives offline, unpack `sources/` from the
    dependency ZIP into `.dev-deps/legal/sources/`, retain the source manifest
-   and run `scripts/prepare_release.py --seed-source-manifest source-manifest.json`
+   and run `build_tools/common/prepare_release.py --seed-source-manifest source-manifest.json`
    before using `-OfflineSources` with the installer build script.
 
 4. The application folder is produced under `dist/APEPDFStudio/`. The installer
@@ -55,7 +59,7 @@ the dependency archive. PyInstaller analyzes the original imports but ships our
 compiled extensions instead of Python source/bytecode modules. Minimal EXE entry
 points and the pre-import integrity bootstrap remain inside the EXEs.
 
-`scripts/prepare_bundle_integrity.py` generates the application hash manifest
+`build_tools/common/prepare_bundle_integrity.py` generates the application hash manifest
 and the digest embedded in each launcher. Modified builds regenerate both;
 there is no secret key or prohibition on rebuilding. The manifest seals only
 APE's own modules/resources and native isolation/Explorer adapters. It does not

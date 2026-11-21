@@ -9,7 +9,7 @@ import sys
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('bundle_integrity_tested', ROOT/'scripts/bundle_integrity.py')
+spec = importlib.util.spec_from_file_location('bundle_integrity_tested', ROOT/'build_tools/common/bundle_integrity.py')
 integrity = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(integrity)
 
@@ -124,7 +124,7 @@ def test_changed_native_guard_never_launches_unisolated_fallback(monkeypatch,tmp
 def test_bootstrap_stops_before_application_import(sealed):
     bundle,digest = sealed
     (bundle/'_internal/ape_pdf_studio/injected.py').write_bytes(b'raise RuntimeError("must not import")')
-    code = ('import sys;sys.path.insert(0,'+repr(str(ROOT/'scripts'))+');'
+    code = ('import sys;sys.path.insert(0,'+repr(str(ROOT/'build_tools/common'))+');'
             'import bundle_integrity;sys.frozen=True;sys.executable='+repr(str(bundle/'ape-pdf-cli.exe'))+';'
             'bundle_integrity.frozen_check('+repr(digest)+');print("must not start")')
     process = subprocess.run([sys.executable,'-I','-c',code],capture_output=True,timeout=15)

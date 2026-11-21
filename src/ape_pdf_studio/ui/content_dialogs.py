@@ -83,7 +83,7 @@ class _TextTask(QRunnable):
         try:
             value, error = self.operation(), ""
         except Exception as exc:
-            value, error = None, str(exc)
+            value, error = None, str(exc) or type(exc).__name__
         try:
             self.signals.completed.emit(self.kind, self.key, value, error)
         except RuntimeError:

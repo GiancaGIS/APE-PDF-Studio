@@ -12,6 +12,7 @@ import time
 from uuid import uuid4
 
 from .errors import PDFOperationError, PDFPasswordRequired, PDFSecurityError
+from .localization import tr
 from .private_work import PrivateDirectory, check_budget
 from .security import copy_checked,check_pdf
 from .docx_export import atomic_copy
@@ -161,6 +162,29 @@ class BrokerEditor:
         if name in METHODS:
             return lambda *args:self.call(name,*args)
         raise AttributeError(name)
+
+    def preview_text(self, target, text, size, alignment, formatting=None, *, raster=False, cancelled=None):
+        args = (target, text, size, alignment, formatting)
+        output = self._root / (uuid4().hex + '.rgba') if raster else None
+        try:
+            with self._lock:
+                if cancelled is not None and cancelled.is_set():
+                    return None, None
+                info = self.call('text_preview', *(args + (output,) if output else args))
+                if info['raster'] is None:
+                    return info, None
+                if output is None:
+                    raise PDFOperationError(tr('Anteprima del testo non valida.'))
+                from .artifacts import read_artifact
+                _, width, height = info['raster']
+                self.checked_path(output)
+                data = read_artifact(output, self._root, width * height * 3)
+                if len(data) != width * height * 3:
+                    raise PDFOperationError(tr('Anteprima del testo non valida.'))
+                return info, data
+        finally:
+            if output is not None:
+                output.unlink(missing_ok=True)
 
     @property
     def path(self):return self._state['revisions'][self._state['index']]
@@ -344,8 +368,13 @@ class BrokerEditor:
                     try:stream.close()
                     except OSError:pass
 
-    def close(self):
+    def close(self, *, defer_cleanup=False):
+        if self._closed:
+            return
         self._closed=True
         self._stop(graceful=True)
         self._password=None
-        self._temp.cleanup()
+        if defer_cleanup:
+            self._temp.cleanup_in_background()
+        else:
+            self._temp.cleanup()

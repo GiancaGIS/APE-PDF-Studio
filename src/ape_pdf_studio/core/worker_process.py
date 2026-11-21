@@ -11,6 +11,10 @@ def worker_command(kind: str, *arguments: str) -> list[str]:
     if kind not in WORKERS:
         raise ValueError(f"Unknown worker: {kind}")
     if getattr(sys, "frozen", False):
+        if sys.platform != "win32":
+            # The Unix bundle shares one bootloader. The worker branch runs
+            # before importing the GUI and keeps its standard streams.
+            return [sys.executable, "--ape-worker", kind, *map(str, arguments)]
         # The console helper provides real pipes even though the GUI is windowed.
         executable = Path(sys.executable).with_name("APEPDFWorker.exe")
         return [str(executable), kind, *map(str, arguments)]

@@ -10,10 +10,10 @@ if not getattr(sys,'frozen',False):
 
 from ape_pdf_studio.core import rpc_codec
 
-METHODS = frozenset(('prepare_signature','insert_signature','insert_blank','add_watermark','ink','update_ink','metadata','update_metadata','interactions','fill_form','rotate','create_form_fields',
+METHODS = frozenset(('prepare_signature','insert_signature','insert_blank','add_watermark','ink','update_ink','metadata','signature_certificates','update_metadata','interactions','fill_form','rotate','create_form_fields',
     'form_design','update_form_fields','delete','move','insert_pdf','add_note','notes','update_note',
     'add_text_markup','extract','text_at','text_boxes','replace_text','paragraph_at','paragraph_boxes',
-    'paragraph_info','replace_paragraph','apply_ocr','undo','redo'))
+    'paragraph_info','text_preview','replace_paragraph','new_paragraph_at','delete_text','apply_ocr','undo','redo'))
 
 
 def checked_path(path,root):
@@ -35,7 +35,7 @@ def state(editor):
 
 def main():
     from ape_pdf_studio.core.security_worker import require_memory_limit
-    require_memory_limit()
+    require_memory_limit(renderer=True)
     from ape_pdf_studio.core.editor import PDFEditor
     from ape_pdf_studio.core.sandbox import in_appcontainer
     if os.name=='nt' and not in_appcontainer():
@@ -57,7 +57,9 @@ def main():
                     if editor is not None:
                         raise ValueError('Document already open')
                     source=checked_path(request['source'],root)
-                    editor=PDFEditor(source,request.get('password'))
+                    # On Unix there is no AppContainer to redirect the default
+                    # workspace. Keep revisions inside the broker's lease.
+                    editor=PDFEditor(source,request.get('password'),workspace=root if os.name!='nt' else None)
                     restore=request.get('restore')
                     if restore:
                         revisions=[checked_path(p,root) for p in restore['revisions']]
@@ -79,6 +81,10 @@ def main():
                         raise ValueError('Invalid signature artifact paths')
                     if method == 'insert_signature' and (len(args)!=4 or not isinstance(args[1],Path)):
                         raise ValueError('Invalid signature asset path')
+                    if method == 'text_preview' and (len(args) not in (4,5,6)
+                            or len(args)==6 and (not isinstance(args[5],Path)
+                                or args[5].parent!=root or args[5].suffix!='.rgba')):
+                        raise ValueError('Invalid text preview artifact path')
                     for arg in args:
                         if isinstance(arg,Path):
                             checked_path(arg,root)

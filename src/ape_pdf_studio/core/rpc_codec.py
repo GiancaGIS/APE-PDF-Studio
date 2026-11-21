@@ -11,12 +11,12 @@ HEADER = struct.Struct('<I')
 
 def types():
     from .metadata import MetadataSnapshot
-    from .document_info import DocumentInfo, SignatureInfo
+    from .document_info import DocumentInfo, SignatureCertificate, SignatureInfo
     from .pdf_forms import FormField
     from .text_edit import TextTarget
     from .paragraph_edit import ParagraphTarget
     from .security import SecurityReport
-    return {cls.__name__: cls for cls in (MetadataSnapshot,DocumentInfo,SignatureInfo,FormField,TextTarget,ParagraphTarget,SecurityReport)}
+    return {cls.__name__: cls for cls in (MetadataSnapshot,DocumentInfo,SignatureInfo,SignatureCertificate,FormField,TextTarget,ParagraphTarget,SecurityReport)}
 
 
 def encode(value):

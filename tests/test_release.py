@@ -10,7 +10,7 @@ import zipfile
 
 import pytest
 
-spec = importlib.util.spec_from_file_location("prepare_release", Path(__file__).resolve().parents[1] / "scripts/prepare_release.py")
+spec = importlib.util.spec_from_file_location("prepare_release", Path(__file__).resolve().parents[1] / "build_tools/common/prepare_release.py")
 release_tools = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release_tools)
 

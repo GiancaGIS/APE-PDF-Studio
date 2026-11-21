@@ -5,6 +5,7 @@ from .localization import tr
 from dataclasses import dataclass
 
 from pypdf import PdfReader
+from pypdf._utils import parse_iso8824_date
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,20 @@ class SignatureInfo:
     subfilter: str = ""
 
 
+MAX_SIGNATURE_CERTIFICATES = 24
+
+
+@dataclass(frozen=True)
+class SignatureCertificate:
+    subject: str
+    issuer: str
+    serial: str
+    valid_from: str
+    valid_until: str
+    sha256: str
+    referenced: bool
+
+
 @dataclass(frozen=True)
 class DocumentInfo:
     pdfa: str | None = None
@@ -24,7 +39,27 @@ class DocumentInfo:
     warnings: tuple[str, ...] = ()
 
 
-def inspect_document(reader: PdfReader) -> DocumentInfo:
+def pdf_string_bytes(value) -> bytes:
+    if isinstance(value, bytes):
+        return value
+    try:
+        return value.original_bytes if isinstance(value, str) else b""
+    except (AttributeError, ValueError):
+        return b""
+
+
+def _declared_date(value) -> str:
+    text = str(value)
+    digits = text.removeprefix("D:")[:14]
+    if len(digits) == 14 and digits.isascii() and digits.isdigit() and len(text) <= 23:
+        try:
+            return parse_iso8824_date(text).isoformat(sep=" ", timespec="seconds")
+        except ValueError:
+            pass
+    return text
+
+
+def inspect_document(reader: PdfReader, *, on_signature=None) -> DocumentInfo:
     """Read XMP identification and populated signature fields, including DocMDP.
 
     This does not verify CMS signatures, certificates, timestamps or PDF/A rules.
@@ -66,19 +101,19 @@ def inspect_document(reader: PdfReader) -> DocumentInfo:
         value = resolved(value)
         if not isinstance(value, dict):
             return False
-        contents = resolved(value.get("/Contents", b""))
-        if isinstance(contents, str):
-            contents = contents.encode("latin-1", errors="replace")
-        if not isinstance(contents, bytes) or not contents.strip(b"\x00"):
+        contents = pdf_string_bytes(resolved(value.get("/Contents")))
+        if not contents.strip(b"\x00"):
             return False
         if identity in seen_signatures:
             return True
         seen_signatures.add(identity)
         signatures.append(SignatureInfo(
             field=field, signer=str(value.get("/Name", "")),
-            date=str(value.get("/M", "")), reason=str(value.get("/Reason", "")),
+            date=_declared_date(value.get("/M", "")), reason=str(value.get("/Reason", "")),
             subfilter=str(value.get("/SubFilter", "")),
         ))
+        if on_signature is not None:
+            on_signature(len(signatures) - 1, value, contents)
         ranges = resolved(value.get("/ByteRange"))
         if not isinstance(ranges, list) or len(ranges) < 4:
             warnings.append(tr("Firma '{0}': struttura ByteRange incompleta.", field))

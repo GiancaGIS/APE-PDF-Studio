@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolBut
 
 class DocumentNotice(QFrame):
     details_requested = Signal()
+    signatures_requested = Signal()
     links_requested = Signal()
     form_requested = Signal()
 
@@ -23,6 +24,10 @@ class DocumentNotice(QFrame):
         self.text.setTextFormat(Qt.TextFormat.PlainText)
         self.text.setWordWrap(True)
         row.addWidget(self.text, 1)
+        self.signature_button = QToolButton()
+        self.signature_button.setText(tr("Visualizza firme"))
+        self.signature_button.clicked.connect(self.signatures_requested)
+        row.addWidget(self.signature_button)
         self.form_button = QToolButton()
         self.form_button.setText(tr("Compila modulo"))
         self.form_button.clicked.connect(self.form_requested)
@@ -64,6 +69,7 @@ class DocumentNotice(QFrame):
         if self.form_count:
             parts.append(tr("Modulo PDF · {0} campi", self.form_count))
         self.form_button.setVisible(bool(self.form_count))
+        self.signature_button.setVisible(bool(info.signatures))
         self.links_button.setVisible("external_links" in security.findings)
         self.links_button.setText(tr("Disabilita collegamenti") if self.links_enabled else tr("Abilita collegamenti…"))
         self.text.setText("   •   ".join(parts))
@@ -79,7 +85,7 @@ class DocumentNotice(QFrame):
         self.setProperty("modified", bool(modified))
         self.setProperty("securityWarning", bool(security.findings))
         # Descendant selectors must be refreshed too when the warning changes.
-        for widget in (self, self.text, self.details):
+        for widget in (self, self.text, self.details, self.signature_button):
             widget.style().unpolish(widget)
             widget.style().polish(widget)
         self.setVisible(bool(parts))

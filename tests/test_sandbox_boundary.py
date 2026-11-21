@@ -29,7 +29,7 @@ def boundary(tmp_path_factory):
     native = ROOT / "build/windows/sandbox"
     host = native / "APEPDFSandbox.exe"
     original = native / "APEPDFSandboxBoundaryProbe.exe"
-    assert host.is_file() and original.is_file(), "Run scripts/build_windows_sandbox.ps1 first"
+    assert host.is_file() and original.is_file(), "Run build_tools/windows/build_windows_sandbox.ps1 first"
     code = tmp_path_factory.mktemp("boundary-code")
     probe = code / original.name
     shutil.copyfile(original, probe)

@@ -1,10 +1,10 @@
 """Live partial erasing, rich controls, preservation and zero gesture-time RPC."""
 import threading
 import pytest
-from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, NumberObject, RectangleObject
 
@@ -165,3 +165,53 @@ def test_erasing_saved_ink_has_no_synchronous_rpc_and_preserves_drafts_on_error(
     monkeypatch.setattr(tab.editor, 'update_ink', lambda *args: (_ for _ in ()).throw(PDFOperationError('synthetic failure')))
     assert not tab.ink.deactivate()
     assert tab.ink.active and tab.ink.edits and tab.dirty
+
+
+def test_close_remains_responsive_while_pending_ink_waits_for_worker(window, tmp_path, monkeypatch):
+    tab = window.current
+    original = tab.editor.source.read_bytes()
+    assert tab.ink.activate()
+    draw(tab, [(80, 180), (280, 180)])
+    assert tab.ink.pending and not tab.editor.dirty
+
+    holding, release, timed_out = (threading.Event() for _ in range(3))
+
+    def hold_broker():
+        with tab.editor._lock:
+            holding.set()
+            if not release.wait(5):
+                timed_out.set()
+
+    thread = threading.Thread(target=hold_broker, daemon=True)
+    thread.start()
+    assert holding.wait(3)
+
+    events = []
+
+    def tick():
+        events.append("ui")
+        release.set()
+
+    def cancel_close(*_):
+        events.append("prompt")
+        return QMessageBox.StandardButton.Cancel
+
+    monkeypatch.setattr(QMessageBox, "question", cancel_close)
+    QTimer.singleShot(100, tick)
+    try:
+        assert not window.close()
+    finally:
+        release.set()
+        thread.join(timeout=5)
+    assert not timed_out.is_set()
+    assert events == ["ui", "prompt"]
+    assert window.current is tab and tab.editor.dirty and not tab.ink.pending
+    assert len(tab.editor.ink()["rows"]) == 1
+
+    saved = tmp_path / "saved-on-close.pdf"
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.Save)
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args, **kwargs: (str(saved), ""))
+    assert window.close()
+    with PdfReader(saved) as reader:
+        assert [annotation.get_object()["/Subtype"] for annotation in reader.pages[0]["/Annots"]] == ["/Ink"]
+    assert tab.editor.source.read_bytes() == original

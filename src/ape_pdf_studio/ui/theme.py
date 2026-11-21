@@ -119,6 +119,7 @@ QTabBar#DocumentTabBar::tab {
 QTabBar#DocumentTabBar::tab:first { margin-left: 8px; }
 QTabBar#DocumentTabBar::tab:hover { background: $selected; color: $accent_dark; border-color: $strong_border; border-bottom-color: transparent; }
 QTabBar#DocumentTabBar::tab:selected { background: white; color: $accent_dark; border-color: $strong_border; border-bottom-color: $accent; }
+QTabBar#DocumentTabBar[activePane="false"]::tab:selected { background: $surface; color: $muted; border-bottom-color: $strong_border; }
 QTabBar#DocumentTabBar::scroller { width: 64px; }
 QTabBar#DocumentTabBar QToolButton[tabScroll="true"] { background: $canvas; color: $accent; border: 1px solid $border; border-radius: 6px; padding: 0; margin: 7px 2px; }
 QTabBar#DocumentTabBar QToolButton[tabScroll="true"]:hover { background: $selected; border-color: $strong_border; }
@@ -131,6 +132,8 @@ QListWidget, QTreeView, QListView { background: $sidebar; border: 0; outline: 0;
 QTreeView::item, QListView::item { padding: 5px 4px; }
 QTreeView::item:selected, QListView::item:selected { background: $selected; color: $accent_dark; }
 QSplitter::handle { background: $border; width: 1px; }
+QSplitter#DocumentSplit::handle { background: $strong_border; }
+QSplitter#DocumentSplit::handle:hover { background: $accent; }
 QToolBar#NavigationBar { border-top: 1px solid $border; border-bottom: 0; padding: 4px 12px; }
 QStatusBar { background: $surface; border-top: 1px solid $border; color: $muted; padding: 0px 9px; font-size: 11px; }
 QStatusBar QLabel { color: $muted; font-size: 11px; }

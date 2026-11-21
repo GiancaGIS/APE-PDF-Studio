@@ -62,17 +62,17 @@ The toolbar groups text editing, freehand drawing, annotations and page operatio
 Run the helper from the project folder:
 
 ```powershell
-.\scripts\run_windows.bat
+.\run_windows.bat
 ```
 
 It prepares `.venv-build`, the corrected MuPDF build and the native Windows sandbox, then starts the app. Source builds require **CPython 3.14.5 x64, Visual Studio C++ Build Tools and Windows SDK**. The standalone installer includes the required runtime. For manual setup:
 
 ```powershell
 py -3.14 -m venv .venv-build
-.\scripts\build_patched_mupdf.ps1 -PythonExe .\.venv-build\Scripts\python.exe
+.\build_tools\windows\build_patched_mupdf.ps1 -PythonExe .\.venv-build\Scripts\python.exe
 .\.venv-build\Scripts\python.exe -m pip install --find-links .dev-deps/patched-wheels -r requirements-release.txt -e ".[dev]"
-.\scripts\build_windows_sandbox.ps1
-.\.venv-build\Scripts\python.exe scripts/prepare_sandbox_runtime.py
+.\build_tools\windows\build_windows_sandbox.ps1
+.\.venv-build\Scripts\python.exe build_tools/windows/prepare_sandbox_runtime.py
 .\.venv-build\Scripts\python.exe -m ape_pdf_studio
 ```
 
@@ -85,10 +85,14 @@ python -m ape_pdf_studio examples/sample_document.pdf
 ### macOS / Linux
 
 ```bash
-bash scripts/run_mac_linux.sh
+bash run_linux.sh
 ```
 
 Alternatively, create a virtual environment, install with `python -m pip install -e .`, and run `python -m ape_pdf_studio`. Windows is the verified platform; macOS/Linux behavior and platform-specific resource limits need testing on the target system.
+
+For a Linux `.deb` and portable archive or a macOS `.pkg` and app ZIP, follow the
+[native build guide](docs/distribuzione/README.md), which also covers Linux
+packaging from Windows through WSL.
 
 ### First steps
 
@@ -125,11 +129,19 @@ Checks run asynchronously, with a 12-second deadline and a 1 MiB response limit.
 
 The standalone installer includes Python, Qt, and the application dependencies. The destination PC does **not** need a Python installation.
 
-On the build machine, install **Python x64**, **Inno Setup 6.3+**, and **Visual Studio / Build Tools** with **Desktop development with C++** and a **Windows SDK**, then run:
+On the build machine, install the **Python x64 version pinned in requirements-release.txt**, **Inno Setup 7.1.1+**, and **Visual Studio / Build Tools** with **Desktop development with C++** and a **Windows SDK**, then run:
 
 ```powershell
-.\scripts\build_installer.bat
+.\build_tools\windows\build_installer.bat
 ```
+
+Build tools follow the OpenScan Studio layout under `build_tools/`. The BAT
+prepares/checks `.venv-build`, preserves its exit code and records progress in
+`build/windows-build.log`. Use `-PrepareOnly` for environment preparation,
+`-BundleOnly` for the standalone folder, or
+`.\.venv-build\Scripts\python.exe scripts/build.py --help` for options. The
+older `scripts/build_installer.bat` command remains a compatibility forwarder.
+See the [build and distribution guide](docs/distribuzione/README.md).
 
 | Installation mode | Permissions | Default folder |
 | --- | --- | --- |
@@ -162,7 +174,7 @@ Distribute the complete standalone folder, including `APEPDFStudio.exe`, `APEPDF
 The application icon is included in the window, executables, installer, and shortcuts. Its editable source is [`app-icon.svg`](src/ape_pdf_studio/assets/app-icon.svg). After changing it, regenerate the PNG and ICO before building:
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\generate_app_icon.py
+.\.venv-build\Scripts\python.exe .\build_tools\branding\generate_app_icon.py
 ```
 
 ## Page organization and editing
@@ -272,9 +284,11 @@ Signature images are copied privately and decoded only in the PDF sandbox, with 
 
 ![A synthetic image signature positioned on the PDF page, with a resize handle, width control and Insert signature button](images/image_signature.png)
 
-**Edit text** activates direct editing on the PDF page. **Paragraph reflow** is enabled by default: click a recognized text box and edit multiple lines in place. Words wrap using PDF font metrics within the original column width, and the paragraph can grow into free space below. The editor supports explicit line breaks, first-line/continuation indents, left/center/right/justified alignment and retained inline font, size and RGB style runs. New text inherits a nearby source style; unavailable fonts use a compatible fallback. Enter inserts a line break; Ctrl+Enter applies. Escape discards a draft, and a second Escape exits the mode. Ctrl+S commits a valid draft before saving. Disable reflow for the previous single-span workflow, where Enter applies.
+**Edit text** opens the editor on the PDF page. Click a recognized box or use Alt+Up and Alt+Down to move between boxes. **Paragraph reflow** wraps the draft using PDF font metrics. **Format** controls font family, size, color, style and paragraph width. With **Selection only**, character formatting applies to the selected range. **Preview** shows the worker-rendered layout, including the effective fonts and line breaks. Use **New text** in an empty area or **Delete text** on a selected block. Both commands support undo and redo.
 
-Paragraph recognition is geometric and conservative: native text blocks, different columns, large gaps, headings and list items remain separate. Growth stops before other text, graphics, widgets, containing backgrounds or the page boundary. Overflow keeps the draft open and leaves the PDF revision unchanged; it never silently shrinks, clips or spills text onto another page. Editing supports horizontal text and simple writing systems, up to 16000 characters and 32 font/style combinations per paragraph. The editing field uses locally available screen fonts; the PDF's fonts and the worker's metrics determine the saved layout. Fields follow zoom and scrolling, drafts stay with their tab, and applied edits support undo/redo. Parsing, layout and font inspection stay in the sandbox; catalog data, other pages, forms, links, metadata and attachments remain preserved. This is paragraph-local reflow, matching the scope [described by Adobe](https://helpx.adobe.com/acrobat/using/edit-text-pdfs1.html), rather than whole-document repagination. Scans require OCR. Try [the paragraph example](examples/riflusso_paragrafi.pdf), generated by `scripts/generate_paragraph_example.py`.
+Enter inserts a line break in paragraphs. Ctrl+Enter applies the draft, or use Enter in single-span mode. Escape discards the draft. Save, print and export wait for the accepted revision while the viewer stays responsive. If an edit fails, the draft stays open with the reason.
+
+Reflow supports horizontal Latin and CJK text, up to 16,000 characters per paragraph. Width and height are bounded by nearby content and the page. The worker checks glyphs, painting order and graphics before publishing a revision. Selected text with ambiguous overlaps, structural tags, layers or linked text markup can be unavailable for editing. Scans require OCR. Try the [paragraph example](examples/riflusso_paragrafi.pdf) and the [Chinese and Japanese example](examples/complex_cjk.pdf).
 
 ![Editing a paragraph directly on the PDF page with automatic line wrapping and alignment controls](images/paragraph_reflow.png)
 
@@ -306,7 +320,7 @@ Suggestions are highlighted directly on the page. Select a box to edit its uniqu
 
 Select **Create fields…** and confirm to create standard, script-free AcroForm fields as one undoable edit. Close preparation, fill fields directly on the page, then **Save / Save as**. Closing preparation with uncreated suggestions asks whether to discard them. Existing fields and values, metadata and document structures are preserved; duplicate names, substantially overlapping boxes and stale revisions are rejected. Protected PDFs retain the read-only policy. Detection suggests text fields and checkboxes; choices can be configured manually. Radio groups and automatic calculations are not inferred.
 
-Try the flat [digital example](examples/modulo_da_preparare.pdf) and [scanned example](examples/modulo_da_preparare_scansione.pdf). Both intentionally start without interactive fields and can be regenerated with `python scripts/generate_form_preparation_example.py`.
+Try the flat [digital example](examples/modulo_da_preparare.pdf) and [scanned example](examples/modulo_da_preparare_scansione.pdf). Both intentionally start without interactive fields and can be regenerated with `python scripts/examples/generate_form_preparation_example.py`.
 
 Analysis runs in a separate, cancellable worker with a 90-second deadline and a mandatory 768 MiB process memory limit. On Windows it uses AppContainer without network access. Raster analysis is limited to 4 million pixels per page, and the result protocol is bounded to 2 MB. Suggestions alone do not modify the PDF; creation uses the existing checked revision and atomic save workflow.
 
@@ -318,7 +332,7 @@ Repeated widgets share a field: changes to name, type and other properties apply
 
 ### Fill existing forms
 
-Open [`examples/modulo_compilabile.pdf`](examples/modulo_compilabile.pdf) to try text fields, multiline notes, a checkbox, a radio group, a dropdown, multiple selections and a read-only reference. It also includes two explicit links for testing the permission dialogs. Generate it again with `python scripts/generate_form_example.py`; the sample contains no scripts or automatic submission.
+Open [`examples/modulo_compilabile.pdf`](examples/modulo_compilabile.pdf) to try text fields, multiline notes, a checkbox, a radio group, a dropdown, multiple selections and a read-only reference. It also includes two explicit links for testing the permission dialogs. Generate it again with `python scripts/examples/generate_form_example.py`; the sample contains no scripts or automatic submission.
 
 Click a highlighted field and fill it **directly on the PDF page**. Checkboxes and individual radio buttons respond to clicks; text, choices and lists use controls positioned inside the field. **Fill form** in the banner or **Edit** menu, or **Ctrl+Shift+F** (**Compila modulo** in Italian), focuses the first available field. **Tab / Shift+Tab** move between fields, including those on other pages. **Enter** confirms a single-line field; **Ctrl+Enter** confirms multiline notes. **Esc** discards the active field's pending changes.
 
@@ -403,7 +417,7 @@ python -m pytest -q
 
 The suite covers the PDF engine, CLI, and real Qt interactions: search, mouse/keyboard selection, clipboard, context menus, annotations on rotated/cropped pages, long-document thumbnails, and tiled rendering compared with full-page output. It also checks HiDPI and rapid zoom, stale-image removal, wheel zoom, page navigation during updates, themes and persistent preferences, active-content blocking (including encrypted and compressed content), scanner failures, destination protection, and security notices.
 
-To refresh the README screenshots from a prepared Windows development environment, run `./.venv-build/Scripts/python.exe scripts/capture_readme_images.py`. It captures the real English interface with the included sample PDFs, uses temporary settings, and verifies that the samples remain unchanged. PDF contents keep their original language; the pictured signature and entered form data are synthetic.
+To refresh the README screenshots from a prepared Windows development environment, run `./.venv-build/Scripts/python.exe scripts/qa/capture_readme_images.py`. It captures the real English interface with the included sample PDFs, uses temporary settings, and verifies that the samples remain unchanged. PDF contents keep their original language; the pictured signature and entered form data are synthetic.
 
 Document tests cover PDF/A metadata and signature structures, Info/XMP synchronization with preservation of translations/attachments/bookmarks, saving, undo/redo, closing, PNG/JPEG export, and DOCX conversion with scans, blank pages, and cancellation. Signature fixtures are synthetic detection structures without cryptographic validity. GUI tests require PySide6 and use Qt's `offscreen` platform and isolated preferences.
 
@@ -457,8 +471,14 @@ src/
       print_dialog.py     Print settings and preview
       icons.py            Application and vector toolbar icons
       theme.py            Shared interface themes
-scripts/                  Launchers, icon generation, build, and smoke checks
-installer/                PyInstaller specification and Inno Setup script
+scripts/                  Build entry points and dependency inspection
+  examples/               Synthetic sample PDF generators
+  qa/                     Diagnostics, screenshots and bounded fuzzing
+build_tools/              Windows, Linux and macOS builds, tooling and checks
+docs/distribuzione/       Build, signing and distribution guide
+run_windows.bat           Windows source startup
+run_linux.sh              Linux source startup
+run_mac.command           macOS source startup
 docs/assets/              README cover artwork
 ```
 

@@ -26,6 +26,7 @@ from .remote_pdf import RemoteDocument, RemoteBookmarks, RemoteSearch
 from .pdf_view import TextPdfView
 from .thumbnails import ThumbnailList
 from .document_notice import DocumentNotice
+from .signature_dialogs import SignatureSummaryDialog
 from .properties_dialog import PropertiesDialog
 from .theme import theme_color
 from .inline_forms import InlineForms
@@ -171,6 +172,7 @@ class DocumentTab(QWidget):
         root.setSpacing(0)
         self.notice = DocumentNotice(self.editor, self)
         self.notice.details_requested.connect(self.show_properties)
+        self.notice.signatures_requested.connect(self.show_signatures)
         root.addWidget(self.notice)
         root.addWidget(self.splitter, 1)
         self.inline_form = InlineForms(self.viewer, lambda: self.editor.path, self._commit_inline_form)
@@ -211,8 +213,18 @@ class DocumentTab(QWidget):
         self.apply_edit("fill_form", values, revision)
         return self.editor.path
 
-    def finish_form(self):
-        return self.inline_form.finish() and self.inline_text.finish() and self.ink.finish() and self.signature.finish()
+    def finish_form(self, when_ready=None):
+        return self.inline_text.finish(when_ready) and self.inline_form.finish() and self.ink.finish() and self.signature.finish()
+
+    def publish_text_revision(self, page):
+        self._load_path = self.editor.path
+        self.viewer.set_vector_source(self._load_path, self.pdf.password())
+        self.pdf.adopt_content_revision(self._load_path)
+        self.thumbs.refresh_content(page)
+        self._selected_search = -1
+        self.viewer.setCurrentSearchResultIndex(-1)
+        self.search_model.setSearchString(self._query)
+        self.changed.emit()
 
     @property
     def page(self) -> int:
@@ -379,7 +391,7 @@ class DocumentTab(QWidget):
             return
         if self.ink.undo():
             return
-        if not self.finish_form():
+        if not self.finish_form(self.undo):
             return
         if self.editor.undo():
             self._pending_page = self.page
@@ -388,13 +400,21 @@ class DocumentTab(QWidget):
     def redo(self) -> None:
         if self.ink.redo():
             return
-        if not self.finish_form():
+        if not self.finish_form(self.redo):
             return
         if self.editor.redo():
             self._pending_page = self.page
             self._reload(self.page)
 
+    def show_signatures(self):
+        if self.editor.document_info.signatures:
+            dialog = SignatureSummaryDialog(self.editor, self)
+            dialog.exec()
+            dialog.deleteLater()
+
     def show_properties(self):
+        if not self.finish_form(self.show_properties):
+            return
         try:
             dialog = PropertiesDialog(self.editor, lambda values: self.apply_edit("update_metadata", values), self)
         except PDFOperationError as exc:
@@ -403,7 +423,7 @@ class DocumentTab(QWidget):
         dialog.exec()
         dialog.deleteLater()
 
-    def close_document(self) -> None:
+    def close_document(self, *, defer_cleanup=False) -> None:
         self.signature.shutdown()
         self.ink.shutdown()
         self.inline_text.shutdown()
@@ -417,4 +437,4 @@ class DocumentTab(QWidget):
         self.bookmark_model.setDocument(None)
         self.pdf.close()
         self._buffer.close()
-        self.editor.close()
+        self.editor.close(defer_cleanup=defer_cleanup)

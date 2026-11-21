@@ -15,10 +15,13 @@ their respective systems. Document processing is local.
 - `src/ape_pdf_studio/locales/`: English, Spanish and French catalogs; application
   string keys are in Italian.
 - `native/`: AppContainer launcher and Windows File Explorer integration.
-- `scripts/`: launchers, runtime preparation, builds, audits, signing and smoke tests.
+- `scripts/`: build entry points and dependency inspection; `scripts/examples/`
+  generates examples and `scripts/qa/` contains diagnostics and fuzzing.
+- `build_tools/`: native packaging flows in `windows/`, `linux/`, `macos/`, `common/`,
+  `checks/`, `launchers/` and `branding/`. See `docs/distribuzione/README.md`.
 - `tests/`: PDF engine, Qt interface and security boundary tests.
 - `examples/`: the only folder for sample PDFs maintained in the repository.
-- `installer/`, `licenses/`, `SOURCE_CODE.md`, `THIRD_PARTY_NOTICES.md`: packaging,
+- `build_tools/windows/`, `licenses/`, `SOURCE_CODE.md`, `THIRD_PARTY_NOTICES.md`: packaging,
   licensing and reproducible distribution.
 
 Read the affected modules and their tests before making changes. Preserve
@@ -89,10 +92,10 @@ For a new environment, follow the README. When the Windows environment needs
 preparing or updating, use this sequence:
 
 ```powershell
-.\scripts\build_patched_mupdf.ps1 -PythonExe .\.venv-build\Scripts\python.exe
+.\build_tools\windows\build_patched_mupdf.ps1 -PythonExe .\.venv-build\Scripts\python.exe
 .\.venv-build\Scripts\python.exe -m pip install --find-links .dev-deps/patched-wheels -r requirements-release.txt -e ".[dev]"
-.\scripts\build_windows_sandbox.ps1
-.\.venv-build\Scripts\python.exe scripts/prepare_sandbox_runtime.py
+.\build_tools\windows\build_windows_sandbox.ps1
+.\.venv-build\Scripts\python.exe build_tools/windows/prepare_sandbox_runtime.py
 ```
 
 Do not replace the corrected MuPDF build with an upstream wheel without also
@@ -113,7 +116,7 @@ $agentTestTemp = 'build/pytest-agent-' + [guid]::NewGuid().ToString('N')
 - Windows tests require a working AppContainer launcher and runtime. Distinguish
   restrictions of the external execution environment from code defects; do not
   work around them by disabling the sandbox.
-- For security boundary changes, also run `scripts/test_windows_sandbox.py` and
+- For security boundary changes, also run `build_tools/checks/test_windows_sandbox.py` and
   the affected protocol tests. The complete regression, fuzzing and audit
   sequence is in `.github/workflows/security.yml`.
 - Add tests for new behavior, bugs and concrete risks. Use proportionate checks
@@ -129,7 +132,7 @@ $agentTestTemp = 'build/pytest-agent-' + [guid]::NewGuid().ToString('N')
 - For security updates, align project constraints, release pins, startup checks
   and inventory gates. Check official advisories and rerun the audit: do not
   ignore a CVE merely to make the pipeline pass.
-- Use `scripts/build_installer.ps1` for Windows packaging and retain the smoke
+- Use `build_tools/windows/build_windows_installer.ps1` for Windows packaging and retain the smoke
   tests. Development builds may be unsigned; `-Release` requires a certificate
   and the prescribed checks. Do not store keys or passwords in the repository.
 - Keep dependency licenses, notices and sources consistent with the distributed
