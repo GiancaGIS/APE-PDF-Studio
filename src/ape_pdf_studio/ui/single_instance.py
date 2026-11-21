@@ -397,8 +397,8 @@ class SingleInstance(QObject):
                 return False
             if self.listener:
                 self.listener.accepting = False
-                self.listener.requestInterruption()
-                self.listener.quit()
+                # The GUI still updates tab actions after this guard. Keep the
+                # listener's Qt objects alive until the GUI event loop exits.
         return True
 
     def close(self):

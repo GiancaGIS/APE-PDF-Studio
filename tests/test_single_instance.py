@@ -163,6 +163,30 @@ def test_close_waits_for_acknowledged_opening_request(window, instances, text_pd
     assert window.isVisible()
 
 
+def test_menu_exit_keeps_the_listener_alive_until_document_teardown_finishes(window, instances, monkeypatch):
+    owner = instances()
+    assert owner.start([])
+    owner.attach(window)
+    listener = owner.listener
+    tab = window.current
+    close_document = tab.close_document
+    during_close = []
+
+    def observed_close(**options):
+        during_close.append((listener.accepting, listener.isInterruptionRequested(), listener.isRunning()))
+        close_document(**options)
+
+    monkeypatch.setattr(tab, "close_document", observed_close)
+    window.a_exit.trigger()
+    assert not window.isVisible() and window.tabs.count() == 0
+    assert during_close == [(False, False, True)]
+    assert not instances()._forward([])
+    assert owner.requests.empty()
+    owner.close()
+    assert listener.isFinished()
+    assert instances().lock.tryLock(0)
+
+
 def test_os_file_open_events_are_delivered_to_existing_tabs(app, window, instances, text_pdf, tmp_path):
     owner = instances()
     assert owner.start([])
@@ -312,7 +336,7 @@ class Window(OriginalWindow):
         super().__init__()
         with (root/'windows.jsonl').open('a') as stream: stream.write(str(os.getpid())+'\n')
         self.timer=QTimer(self)
-        self.timer.timeout.connect(lambda: self.close() if (root/'stop').exists() else None)
+        self.timer.timeout.connect(lambda: self.a_exit.trigger() if (root/'stop').exists() else None)
         self.timer.start(25)
     def schedule_update_check(self): pass
     def open_pdf(self, path):

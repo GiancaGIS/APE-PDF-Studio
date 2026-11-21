@@ -36,7 +36,6 @@ def main() -> int:
         instance = SingleInstance(app)
         if not instance.start(paths):
             return 0
-        app.aboutToQuit.connect(instance.close)
         from .core.private_work import cleanup_stale
         cleanup_stale()
         app.setWindowIcon(application_icon())

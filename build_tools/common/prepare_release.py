@@ -27,7 +27,7 @@ LEGAL = ROOT / "build/windows/legal"
 REQUIRED_TEXTS = ("AGPL-3.0-only", "LGPL-3.0-only", "GPL-3.0-only", "GPL-2.0-only", "Apache-2.0")
 SOURCE_DIRS = ("src", "scripts", "native", "build_tools", "docs", "tests", "examples", "licenses", "images", ".github")
 SOURCE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "SOURCE_CODE.md", "README.md",
-                "pyproject.toml", "requirements-release.txt", "requirements-native-build.txt", "AGENTS.md", ".gitignore",
+                "pyproject.toml", "requirements-release.txt", "requirements-native-build.txt", "AGENTS.md", ".gitignore", ".gitattributes",
                 "run_windows.bat", "run_linux.sh", "run_mac.command")
 NOTICE_SCHEMA = 2
 

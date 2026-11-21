@@ -27,7 +27,7 @@ rsync -rlt --relative \
     --exclude='*.key' --exclude='*.pem' --exclude='*.pfx' --exclude='*.p12' \
     src scripts build_tools native tests examples docs images licenses .github \
     pyproject.toml requirements-*.txt README.md LICENSE NOTICE SOURCE_CODE.md THIRD_PARTY_NOTICES.md \
-    AGENTS.md .gitignore run_windows.bat run_linux.sh run_mac.command "$stage/"
+    AGENTS.md .gitignore .gitattributes run_windows.bat run_linux.sh run_mac.command "$stage/"
 mkdir -p "$stage/.dev-deps/patched-mupdf"
 for name in pymupdf-1.28.2.tar.gz mupdf-1.28.5-source.tar.gz; do
     archive="$source_root/.dev-deps/legal/sources/$name"
