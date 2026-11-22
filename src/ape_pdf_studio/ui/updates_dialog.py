@@ -9,7 +9,7 @@ from .update_checker import UpdateChecker
 
 
 class UpdatesDialog(QDialog):
-    def __init__(self, parent=None, *, checker=None):
+    def __init__(self, parent=None, *, checker=None, allow_install=False):
         super().__init__(parent)
         self.setWindowTitle(tr("Aggiornamenti"))
         self.setMinimumWidth(440)
@@ -19,20 +19,26 @@ class UpdatesDialog(QDialog):
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
-        privacy = QLabel(tr("Il controllo contatta api.github.com. Nessun PDF o password viene inviato. L'aggiornamento si installa manualmente."))
+        privacy = QLabel(tr("Il controllo contatta api.github.com. Nessun PDF o password viene inviato."))
         privacy.setWordWrap(True)
         layout.addWidget(privacy)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         self.check_button = QPushButton(tr("Verifica aggiornamenti"))
         self.release_button = QPushButton(tr("Apri la release su GitHub"))
         self.release_button.setEnabled(False)
+        self.install_button = QPushButton(tr("Scarica e installa…"))
+        self.install_button.hide()
+        self.install_button.clicked.connect(self._request_install)
         buttons.addButton(self.check_button, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(self.release_button, QDialogButtonBox.ButtonRole.ActionRole)
+        buttons.addButton(self.install_button, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.rejected.connect(self.reject)
         self.check_button.clicked.connect(self.check)
         self.release_button.clicked.connect(self.open_release)
         layout.addWidget(buttons)
         self._owns_checker = checker is None
+        self._allow_install = allow_install
+        self.install_release = None
         self.checker = checker if checker is not None else UpdateChecker(self)
         self.checker.started.connect(self._started)
         self.checker.completed.connect(self._completed)
@@ -51,6 +57,7 @@ class UpdatesDialog(QDialog):
     def _started(self):
         self.check_button.setEnabled(False)
         self.release_button.setEnabled(False)
+        self.install_button.hide()
         self.status.setText(tr("Controllo aggiornamenti in corso…"))
 
     def _completed(self, release):
@@ -60,6 +67,7 @@ class UpdatesDialog(QDialog):
         elif release.update_available:
             message = tr("È disponibile la versione {0}.", release.version)
             self.release_button.setEnabled(True)
+            self.install_button.setVisible(self._allow_install and release.installer is not None)
         else:
             message = tr("La versione installata è aggiornata rispetto alla release {0}.", release.version)
         self.status.setText(message)
@@ -67,7 +75,14 @@ class UpdatesDialog(QDialog):
     def _failed(self, message):
         self.check_button.setEnabled(True)
         self.release_button.setEnabled(False)
+        self.install_button.hide()
         self.status.setText(message)
+
+    def _request_install(self):
+        release = self.checker.release
+        if self._allow_install and release is not None and release.update_available and release.installer is not None:
+            self.install_release = release
+            self.accept()
 
     def open_release(self):
         release = self.checker.release

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from ape_pdf_studio.core.updates import MAX_RESPONSE_BYTES, RELEASES_URL, UpdateError, parse_release, stable_version
+from ape_pdf_studio.core.updates import MAX_INSTALLER_BYTES, MAX_RESPONSE_BYTES, RELEASES_URL, UpdateError, parse_release, stable_version
 
 
 def body(tag="v1.2.0", **values):
@@ -37,3 +37,32 @@ def test_release_links_are_built_from_the_fixed_repository():
     release = parse_release(200, body("v1.2.3+build", html_url="file:///C:/evil.exe", assets=[{"browser_download_url": "https://evil.invalid/"}]))
     assert release.url == RELEASES_URL + "/tag/v1.2.3%2Bbuild"
     assert stable_version("v1.2.3+build") == (1, 2, 3)
+
+
+def installer_asset(version="1.10.0", **changes):
+    name = f"APEPDFStudio-{version}-Setup-x64.exe"
+    return {"name": name, "state": "uploaded", "size": 123, "digest": "sha256:" + "a" * 64,
+            "browser_download_url": f"{RELEASES_URL}/download/v{version}/{name}", **changes}
+
+
+def test_only_newer_release_exposes_matching_installer():
+    data = body("v1.10.0", assets=[installer_asset(), installer_asset("1.2.3")])
+    asset = parse_release(200, data, current="1.3.1").installer
+    assert asset.sha256 == "a" * 64 and asset.size == 123
+    assert asset.url == installer_asset()["browser_download_url"]
+    assert parse_release(200, data, current="1.10.0").installer is None
+
+
+@pytest.mark.parametrize("changes", [
+    {"state": "new"}, {"size": True}, {"size": 0}, {"size": MAX_INSTALLER_BYTES + 1},
+    {"digest": None}, {"digest": "sha256:bad"}, {"browser_download_url": "https://invalid.example/setup.exe"},
+    {"name": "APE-PDF-Studio.msi"},
+])
+def test_invalid_installer_keeps_manual_release_available(changes):
+    release = parse_release(200, body("v1.10.0", assets=[installer_asset(**changes)]), current="1.3.1")
+    assert release.update_available and release.installer is None
+
+
+def test_ambiguous_installer_asset_is_ignored():
+    release = parse_release(200, body("v1.10.0", assets=[installer_asset()] * 2), current="1.3.1")
+    assert release.installer is None

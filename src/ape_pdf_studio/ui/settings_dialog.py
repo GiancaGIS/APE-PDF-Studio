@@ -1,8 +1,8 @@
-"""Persistent appearance and language preferences with an isolated color preview."""
+"""Persistent appearance, language and update preferences."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFrame, QHBoxLayout,
     QLabel, QPushButton, QVBoxLayout,
 )
 
@@ -13,10 +13,12 @@ from ..core.localization import LANGUAGES, current_language, normalize_language,
 class SettingsDialog(QDialog):
     theme_applied = Signal(str)
     language_applied = Signal(str)
+    auto_updates_applied = Signal(bool)
 
-    def __init__(self, theme_name=DEFAULT_THEME, parent=None, *, language_name=None):
+    def __init__(self, theme_name=DEFAULT_THEME, parent=None, *, language_name=None,
+                 auto_updates=False, auto_updates_available=False):
         super().__init__(parent)
-        self.setWindowTitle(tr("Impostazioni · Aspetto e lingua"))
+        self.setWindowTitle(tr("Impostazioni"))
         self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 20)
@@ -76,6 +78,15 @@ class SettingsDialog(QDialog):
         self.reset_button = QPushButton(tr("Ripristina blu"))
         self.reset_button.clicked.connect(lambda: self.theme_combo.setCurrentIndex(self.theme_combo.findData(DEFAULT_THEME)))
         layout.addWidget(self.reset_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.auto_updates = QCheckBox(tr("Proponi l’installazione automatica degli aggiornamenti"))
+        self.auto_updates.setEnabled(auto_updates_available)
+        self.auto_updates.setChecked(auto_updates)
+        layout.addWidget(self.auto_updates)
+        updates_caption = QLabel(tr("L’app Windows e il setup devono essere firmati con lo stesso certificato. L’installazione parte solo dopo la conferma.")
+            if auto_updates_available else tr("L’installazione automatica è disponibile per l’app installata con il setup Windows."))
+        updates_caption.setObjectName("Caption")
+        updates_caption.setWordWrap(True)
+        layout.addWidget(updates_caption)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Apply)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("OK")
@@ -102,6 +113,8 @@ class SettingsDialog(QDialog):
     def apply_selection(self):
         self.theme_applied.emit(self.theme_combo.currentData())
         self.language_applied.emit(self.language_combo.currentData())
+        if self.auto_updates.isEnabled():
+            self.auto_updates_applied.emit(self.auto_updates.isChecked())
 
     def accept(self):
         self.apply_selection()

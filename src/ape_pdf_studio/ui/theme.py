@@ -89,6 +89,7 @@ QToolButton:hover, QToolButton:checked { background: $selected; border-color: $s
 QToolButton:pressed { background: $pressed; }
 QToolBar#InkToolbar { background: $surface; border-bottom: 1px solid $border; padding: 4px 8px; spacing: 3px; }
 QToolButton#InkTool:checked { background: $selected; color: $accent_dark; border: 1px solid $strong_border; }
+QToolButton#InkStyleButton::menu-indicator { subcontrol-origin: padding; subcontrol-position: right center; right: 4px; }
 QFrame#InkStylePanel { background: $surface; border: 0; }
 QScrollArea#InkStyleScroll, QScrollArea#InkStyleScroll > QWidget > QWidget { background: $surface; border: 0; }
 QToolButton:disabled { color: $disabled_text; }

@@ -49,8 +49,11 @@ from .language import configure_language
 from .licenses_dialog import LicensesDialog, software_disclaimer
 from .updates_dialog import UpdatesDialog
 from .update_checker import UpdateChecker
+from .update_installer import UpdateInstaller
 from ..core.pdf_links import allowed_url
 from ..core.localization import DEFAULT_LANGUAGE, normalize_language, tr
+from ..core.updates import AUTO_INSTALL_KEY
+from ..core.windows_update import installation_scope
 
 
 class MainWindow(QMainWindow):
@@ -97,6 +100,7 @@ class MainWindow(QMainWindow):
         self._restore_window()
         self.toast = CompletionToast(self)
         self.update_toast = UpdateToast(self, self.toast)
+        self.update_toast.install_requested.connect(self._start_update_install)
         self.update_checker = UpdateChecker(self)
         self.update_checker.completed.connect(self._startup_update_finished)
         self.update_checker.failed.connect(self._startup_update_failed)
@@ -105,6 +109,9 @@ class MainWindow(QMainWindow):
         self._startup_timer = QTimer(self)
         self._startup_timer.setSingleShot(True)
         self._startup_timer.timeout.connect(self._check_startup_update)
+        self._update_install_job = None
+        self._update_progress = None
+        self._install_on_close = False
 
     def _make_welcome(self) -> QWidget:
         page = QWidget()
@@ -196,7 +203,7 @@ class MainWindow(QMainWindow):
         return action
 
     def _build_actions(self) -> None:
-        self.a_settings = self._action(tr("Aspetto e lingua…"), self.show_settings, "Ctrl+,")
+        self.a_settings = self._action(tr("Preferenze…"), self.show_settings, "Ctrl+,")
         self.a_open = self._action(tr("Apri PDF…"), self.open_dialog, "Ctrl+O")
         self.a_close = self._action(tr("Chiudi scheda"), self.close_current, "Ctrl+W", doc=True)
         self.a_save = self._action(tr("Salva con nome…"), self.save_as, "Ctrl+Shift+S", edit=True)
@@ -474,11 +481,24 @@ class MainWindow(QMainWindow):
 
     def show_settings(self):
         dialog = SettingsDialog(self.theme_name, self,
-                                language_name=self.settings.value("ui/language", self.language_name))
+                                language_name=self.settings.value("ui/language", self.language_name),
+                                auto_updates=self.settings.value(AUTO_INSTALL_KEY, False, type=bool),
+                                auto_updates_available=installation_scope() is not None)
         dialog.theme_applied.connect(self._apply_color_theme)
         dialog.language_applied.connect(self._apply_ui_language)
+        dialog.auto_updates_applied.connect(self._apply_auto_updates)
         dialog.exec()
         dialog.deleteLater()
+
+    def _apply_auto_updates(self, enabled):
+        self.settings.setValue(AUTO_INSTALL_KEY, enabled)
+        self.settings.sync()
+        self.update_toast.set_install_allowed(self._auto_update_scope() is not None)
+        if not enabled:
+            self._cancel_update_install()
+
+    def _auto_update_scope(self):
+        return installation_scope() if self.settings.value(AUTO_INSTALL_KEY, False, type=bool) else None
 
     def _apply_ui_language(self, language):
         language = normalize_language(language)
@@ -793,13 +813,16 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(tr("Attendi la conversione Word oppure premi Annulla nella finestra di avanzamento."))
             return
         # Finish every open draft before presenting any save/discard prompts.
+        after_draft = self._close_for_update if self._install_on_close else self.close
         for index in range(self.tabs.count()):
-            if not self.tabs.widget(index).inline_text.finish(self.close):
+            if not self.tabs.widget(index).inline_text.finish(after_draft):
                 event.ignore()
                 return
         for index in range(self.tabs.count()):
             tab = self.tabs.widget(index)
             if not self._confirm_close(tab):
+                if self._install_on_close:
+                    self._cancel_update_install()
                 event.ignore()
                 return
         if self.close_guard is not None and not self.close_guard():
@@ -815,6 +838,10 @@ class MainWindow(QMainWindow):
             tab = self.tabs.widget(index)
             tab.close_document(defer_cleanup=True)
             self.tabs.removeTab(index)
+        if self._install_on_close:
+            self._launch_update_installer()
+        else:
+            self._cancel_update_install()
         super().closeEvent(event)
 
     def _run(self, callable_, success=tr("Operazione completata"), *, output=None, notification=tr("Operazione completata")) -> bool:
@@ -1356,16 +1383,96 @@ class MainWindow(QMainWindow):
     def _startup_update_finished(self, release):
         if self._startup_pending:
             self._startup_pending = False
-            self.update_toast.show_update(release)
+            self.update_toast.show_update(release, allow_install=self._auto_update_scope() is not None)
 
     def _startup_update_failed(self, _message):
         self._startup_pending = False
 
     def show_updates(self) -> None:
-        dialog = UpdatesDialog(self, checker=self.update_checker)
+        dialog = UpdatesDialog(self, checker=self.update_checker, allow_install=self._auto_update_scope() is not None)
         dialog.check()
         dialog.exec()
+        release = dialog.install_release
         dialog.deleteLater()
+        if release is not None:
+            self._start_update_install(release)
+
+    def _start_update_install(self, release):
+        scope = self._auto_update_scope()
+        if scope is None or release is None or not release.update_available or release.installer is None:
+            return
+        if self._update_install_job is not None:
+            if self._update_install_job.prepared and self._update_install_job.release == release:
+                self._confirm_update_install()
+                return
+            if not self._update_install_job.prepared:
+                self._update_progress.raise_()
+                return
+            self._cancel_update_install()
+        self.update_toast.dismiss()
+        job = self._update_install_job = UpdateInstaller(release, scope, self)
+        progress = self._update_progress = QProgressDialog("", tr("Annulla"), 0, release.installer.size, self)
+        progress.setWindowTitle(tr("Aggiornamenti"))
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        progress.canceled.connect(self._cancel_update_install)
+        job.progress.connect(progress.setValue)
+        job.status.connect(progress.setLabelText)
+        job.ready.connect(self._confirm_update_install)
+        job.failed.connect(self._update_install_failed)
+        progress.show()
+        job.start()
+
+    def _confirm_update_install(self):
+        self._update_progress.hide()
+        result = QMessageBox.question(self, tr("Aggiornamenti"),
+            tr("Installare APE PDF Studio {0}? L’app ti chiederà di salvare le modifiche prima di chiudersi e avviare il setup.",
+                self._update_install_job.release.version),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
+        if result == QMessageBox.StandardButton.Yes:
+            self._close_for_update()
+        else:
+            self._cancel_update_install()
+
+    def _close_for_update(self):
+        if self._update_install_job is None:
+            return
+        if self._auto_update_scope() != self._update_install_job.scope:
+            self._cancel_update_install()
+            return
+        self._install_on_close = True
+        try:
+            self.close()
+        finally:
+            self._install_on_close = False
+
+    def _update_install_failed(self, message):
+        self._cancel_update_install()
+        QMessageBox.warning(self, tr("Aggiornamenti"), message + "\n\n" +
+            tr("Puoi aprire la release su GitHub dalla finestra Aggiornamenti."))
+
+    def _cancel_update_install(self):
+        self._dispose_update_install(launch=False)
+
+    def _launch_update_installer(self):
+        if not self._dispose_update_install(launch=True):
+            QMessageBox.warning(self, tr("Aggiornamenti"), tr("Impossibile avviare l’installer dell’aggiornamento."))
+
+    def _dispose_update_install(self, *, launch):
+        progress, self._update_progress = self._update_progress, None
+        if progress is not None:
+            progress.hide()
+            progress.deleteLater()
+        job, self._update_install_job = self._update_install_job, None
+        if job is None:
+            return False
+        result = launch and job.launch()
+        if not result:
+            job.cancel()
+        job.deleteLater()
+        return result
 
     def about(self) -> None:
         QMessageBox.information(
