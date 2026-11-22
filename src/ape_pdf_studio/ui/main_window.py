@@ -38,7 +38,7 @@ from .compression import CompressionDialog, CompressedPdfExportJob
 from .icons import application_icon, icon
 from .page_number import PageNumberEdit
 from .settings_dialog import SettingsDialog
-from .theme import DEFAULT_THEME, apply_theme, normalize_theme, theme_color
+from .theme import DEFAULT_MODE, DEFAULT_THEME, apply_theme, normalize_mode, normalize_theme, theme_color
 from .toast import CompletionToast, UpdateToast
 from .content_dialogs import NoteDialog, TextEditDialog
 from .split_dialog import SplitDialog
@@ -63,7 +63,9 @@ class MainWindow(QMainWindow):
         # Keep the original preference namespace across the product rename.
         self.settings = QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, "APEX", "PDF Studio")
         self.language_name = configure_language(QApplication.instance(), self.settings.value("ui/language", DEFAULT_LANGUAGE))
-        self.theme_name = apply_theme(QApplication.instance(), normalize_theme(self.settings.value("ui/theme", DEFAULT_THEME)))
+        self.appearance_mode = normalize_mode(self.settings.value("ui/appearance", DEFAULT_MODE))
+        self.theme_name = apply_theme(QApplication.instance(), self.settings.value("ui/theme", DEFAULT_THEME),
+                                      self.appearance_mode)
         self.setWindowTitle("APE PDF Studio")
         self.setWindowIcon(application_icon())
         self.setMinimumSize(900, 620)
@@ -112,6 +114,8 @@ class MainWindow(QMainWindow):
         self._update_install_job = None
         self._update_progress = None
         self._install_on_close = False
+        QApplication.styleHints().colorSchemeChanged.connect(
+            self._system_appearance_changed, Qt.ConnectionType.QueuedConnection)
 
     def _make_welcome(self) -> QWidget:
         page = QWidget()
@@ -151,7 +155,8 @@ class MainWindow(QMainWindow):
         button = QPushButton(tr("Scegli documento…"))
         button.setMinimumHeight(40)
         button.setObjectName("Primary")
-        button.setIcon(icon("open", "#ffffff"))
+        button.setProperty("glyph", "open")
+        button.setIcon(icon("open", theme_color("on_accent")))
         button.clicked.connect(self.open_dialog)
         layout.addWidget(title)
         layout.addWidget(caption)
@@ -481,6 +486,7 @@ class MainWindow(QMainWindow):
 
     def show_settings(self):
         dialog = SettingsDialog(self.theme_name, self,
+                                appearance_mode=self.appearance_mode,
                                 language_name=self.settings.value("ui/language", self.language_name),
                                 auto_updates=self.settings.value(AUTO_INSTALL_KEY, False, type=bool),
                                 auto_updates_available=installation_scope() is not None)
@@ -507,22 +513,34 @@ class MainWindow(QMainWindow):
         if language != self.language_name:
             self.statusBar().showMessage(tr("Lingua salvata. Riavvia il programma per applicarla."), 10000)
 
-    def _apply_color_theme(self, name):
-        self.theme_name = apply_theme(QApplication.instance(), name)
+    def _apply_color_theme(self, name, mode):
+        self.theme_name = normalize_theme(name)
+        self.appearance_mode = normalize_mode(mode)
         self.settings.setValue("ui/theme", self.theme_name)
+        self.settings.setValue("ui/appearance", self.appearance_mode)
         self.settings.sync()
+        self._refresh_appearance()
+
+    def _system_appearance_changed(self):
+        if self.appearance_mode == "system":
+            self._refresh_appearance()
+
+    def _refresh_appearance(self):
+        apply_theme(QApplication.instance(), self.theme_name, self.appearance_mode)
         # Custom drawings and vector icons share the same palette as Qt widgets.
         for window in QApplication.topLevelWidgets():
             if not isinstance(window, MainWindow):
                 continue
             window.theme_name = self.theme_name
+            window.appearance_mode = self.appearance_mode
             window.tabs.refresh_icons()
             for action in window.findChildren(QAction):
                 if glyph := action.property("glyph"):
                     action.setIcon(icon(glyph))
             for button in window.findChildren(QPushButton) + window.findChildren(QToolButton):
                 if glyph := button.property("glyph"):
-                    button.setIcon(icon(glyph))
+                    color = theme_color("on_accent") if button.objectName() == "Primary" else None
+                    button.setIcon(icon(glyph, color))
             for widget in window.findChildren(QWidget):
                 widget.update()
 

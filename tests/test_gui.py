@@ -920,14 +920,16 @@ def test_page_number_draft_is_reset_on_tab_change(window, text_pdf, tmp_path):
 @pytest.fixture
 def isolated_theme(app):
     settings = QSettings(QSettings.defaultFormat(), QSettings.Scope.UserScope, "APEX", "PDF Studio")
-    previous = settings.value("ui/theme")
-    settings.remove("ui/theme")
+    previous = {key: settings.value(key) for key in ("ui/theme", "ui/appearance")}
+    for key in previous:
+        settings.remove(key)
     apply_theme(app)
     yield settings
-    if previous is None:
-        settings.remove("ui/theme")
-    else:
-        settings.setValue("ui/theme", previous)
+    for key, value in previous.items():
+        if value is None:
+            settings.remove(key)
+        else:
+            settings.setValue(key, value)
     settings.sync()
     apply_theme(app)
 
@@ -936,8 +938,10 @@ def test_theme_defaults_to_blue_with_invalid_setting(app, isolated_theme):
     for value in (None, "missing-theme"):
         if value:
             isolated_theme.setValue("ui/theme", value)
+            isolated_theme.setValue("ui/appearance", "missing-mode")
         widget = MainWindow()
         assert widget.theme_name == DEFAULT_THEME == "blue"
+        assert widget.appearance_mode == "light"
         assert theme_color("accent") == THEMES["blue"].accent
         assert widget.a_settings.isEnabled() and widget.current is None
         widget.close()
@@ -985,9 +989,12 @@ def test_theme_settings_cancel_preview_and_restore_blue(window, app, isolated_th
     original_style = app.styleSheet()
     dialog.theme_combo.setCurrentIndex(dialog.theme_combo.findData("green"))
     assert THEMES["green"].accent in dialog.preview.styleSheet()
+    dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("dark"))
+    assert theme_colors("green", True)["base"] in dialog.preview.styleSheet()
     dialog.reject()
     assert app.styleSheet() == original_style
     assert isolated_theme.value("ui/theme") is None
+    assert isolated_theme.value("ui/appearance") is None
     dialog.show()
     dialog.apply_selection()
     assert window.theme_name == "green"
@@ -997,7 +1004,79 @@ def test_theme_settings_cancel_preview_and_restore_blue(window, app, isolated_th
     dialog.accept()
     assert window.theme_name == "blue"
     assert isolated_theme.value("ui/theme") == "blue"
+    assert isolated_theme.value("ui/appearance") == "dark"
     dialog.deleteLater()
+
+
+def test_dark_appearance_preserves_open_pdf_and_restarts(isolated_theme, window, app, monkeypatch):
+    tab = window.current
+    tab.jump_to_page(1)
+    tab.set_zoom(125)
+    first_state = tab.editor, tab.page, tab.viewer.zoomFactor()
+
+    def choose(dialog):
+        dialog.theme_combo.setCurrentIndex(dialog.theme_combo.findData("coral"))
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("dark"))
+        dialog.accept()
+        return dialog.result()
+
+    monkeypatch.setattr(SettingsDialog, "exec", choose)
+    window.show_settings()
+    QTest.qWait(50)
+    assert window.current is tab
+    assert (tab.editor, tab.page, tab.viewer.zoomFactor()) == first_state
+    colors = theme_colors("coral", True)
+    assert app.palette().color(QPalette.ColorRole.Base).name() == colors["base"]
+    image = tab.viewer.viewport().grab().toImage()
+    assert image.pixelColor(0, 0).name() == colors["canvas"]
+    assert image.pixelColor(image.width() // 2, image.height() // 2).name() == "#ffffff"
+
+    restarted = MainWindow()
+    try:
+        assert restarted.theme_name == "coral" and restarted.appearance_mode == "dark"
+    finally:
+        restarted.close()
+        restarted.deleteLater()
+
+
+def test_follow_system_updates_live_and_respects_fixed_modes(app, isolated_theme, monkeypatch):
+    hints = app.styleHints()
+    scheme = Qt.ColorScheme.Light
+    monkeypatch.setattr(type(hints), "colorScheme", lambda self: scheme)
+    isolated_theme.setValue("ui/theme", "ochre")
+    isolated_theme.setValue("ui/appearance", "system")
+    widget = MainWindow()
+    dialog = SettingsDialog(widget.theme_name, widget, appearance_mode=widget.appearance_mode)
+    dialog.theme_applied.connect(widget._apply_color_theme)
+    try:
+        assert theme_color("accent") == THEMES["ochre"].accent
+        scheme = Qt.ColorScheme.Dark
+        hints.colorSchemeChanged.emit(scheme)
+        app.processEvents()
+        dark_colors = theme_colors("ochre", True)
+        assert theme_color("accent") == dark_colors["accent"]
+        assert dark_colors["base"] in dialog.preview.styleSheet()
+        assert isolated_theme.value("ui/appearance") == "system"
+        scheme = Qt.ColorScheme.Light
+        hints.colorSchemeChanged.emit(scheme)
+        app.processEvents()
+        assert theme_color("accent") == THEMES["ochre"].accent
+
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("dark"))
+        dialog.apply_selection()
+        hints.colorSchemeChanged.emit(scheme)
+        app.processEvents()
+        assert theme_color("accent") == dark_colors["accent"]
+        dialog.mode_combo.setCurrentIndex(dialog.mode_combo.findData("light"))
+        dialog.apply_selection()
+        scheme = Qt.ColorScheme.Dark
+        hints.colorSchemeChanged.emit(scheme)
+        app.processEvents()
+        assert theme_color("accent") == THEMES["ochre"].accent
+    finally:
+        dialog.deleteLater()
+        widget.close()
+        widget.deleteLater()
 
 
 def test_security_rejects_active_pdf_before_qt_load(window, tmp_path, monkeypatch):

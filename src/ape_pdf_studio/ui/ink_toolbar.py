@@ -57,6 +57,10 @@ class StrokePreview(QWidget):
             return
         color = QColor(self.owner.color)
         color.setAlphaF(self.owner.opacity.value()/100)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(Qt.GlobalColor.white)
+        painter.drawRoundedRect(self.rect(), 6, 6)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(color, self.owner.width_control.value(), Qt.PenStyle.SolidLine,
             Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath(QPointF(15, 36))
@@ -194,9 +198,11 @@ class DrawingToolbar(QToolBar):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.addWidget(spacer)
         self.delete_action = QAction(icon('delete'), tr('Elimina disegno'), self)
+        self.delete_action.setProperty('glyph', 'delete')
         self.addAction(self.delete_action)
         self.delete_button = self.widgetForAction(self.delete_action)
         self.done_action = QAction(icon('close'), tr('Fine'), self)
+        self.done_action.setProperty('glyph', 'close')
         self.addAction(self.done_action)
         self.widgetForAction(self.done_action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._sync()
@@ -224,6 +230,7 @@ class DrawingToolbar(QToolBar):
         for code, action in self.actions_by_tool.items():
             action.setChecked(code == self.tool)
         self.settings_action.setEnabled(self.tool in self.profiles)
+        self.settings_action.setProperty('glyph', 'style' if self.tool in ('select', 'eraser') else None)
         if self.tool == 'select':
             self.settings_action.setIcon(icon('style'))
             self.settings_button.setToolTip(tr('Stile'))
