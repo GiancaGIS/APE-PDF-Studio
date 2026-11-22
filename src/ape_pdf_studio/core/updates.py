@@ -1,4 +1,4 @@
-"""Validate public GitHub release metadata; never download or execute an update."""
+"""Validate version and installer metadata for the official GitHub repository."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,6 +15,8 @@ LATEST_RELEASE_API = f"https://api.github.com/repos/{REPOSITORY}/releases/latest
 API_VERSION = "2026-03-10"
 MAX_RESPONSE_BYTES = 1024 * 1024
 TIMEOUT_MS = 12_000
+AUTO_INSTALL_KEY = "updates/autoInstall"
+MAX_INSTALLER_BYTES = 512 * 1024 * 1024
 
 
 class UpdateError(ValueError):
@@ -32,10 +34,36 @@ def stable_version(value: str) -> tuple[int, int, int]:
 
 
 @dataclass(frozen=True)
+class Installer:
+    url: str
+    size: int
+    sha256: str
+
+
+@dataclass(frozen=True)
 class Release:
     version: str
     url: str
     update_available: bool
+    installer: Installer | None = None
+
+
+def windows_installer(payload: dict, tag: str, version: str) -> Installer | None:
+    assets = payload.get("assets")
+    if not isinstance(assets, list):
+        return None
+    name = f"APEPDFStudio-{version}-Setup-x64.exe"
+    matches = [asset for asset in assets if isinstance(asset, dict) and asset.get("name") == name]
+    if len(matches) != 1:
+        return None
+    asset = matches[0]
+    size, digest = asset.get("size"), asset.get("digest")
+    url = RELEASES_URL + "/download/" + quote(tag, safe="") + "/" + name
+    if (asset.get("state") != "uploaded" or asset.get("browser_download_url") != url
+            or type(size) is not int or not 0 < size <= MAX_INSTALLER_BYTES
+            or not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)):
+        return None
+    return Installer(url, size, digest.removeprefix("sha256:"))
 
 
 def parse_release(status: int, body: bytes, current: str = __version__) -> Release | None:
@@ -55,7 +83,8 @@ def parse_release(status: int, body: bytes, current: str = __version__) -> Relea
         latest, installed = stable_version(tag), stable_version(current)
     except (ValueError, KeyError, TypeError, RecursionError) as exc:
         raise UpdateError(tr("La risposta di GitHub non contiene una versione stabile valida.")) from exc
-    # Do not trust html_url or asset URLs from the response. Keep navigation on
-    # the fixed official repository, even if upstream metadata is unexpected.
+    # Construct both URLs from the fixed repository and validated tag.
     url = RELEASES_URL + "/tag/" + quote(tag, safe="")
-    return Release(".".join(map(str, latest)), url, latest > installed)
+    version = ".".join(map(str, latest))
+    available = latest > installed
+    return Release(version, url, available, windows_installer(payload, tag, version) if available else None)

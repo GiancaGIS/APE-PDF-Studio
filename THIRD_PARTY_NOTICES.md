@@ -37,6 +37,12 @@ the corresponding source. The build uses the modules needed for PDF image
 processing, with Intel IPP and FFmpeg disabled. The original OpenCV notices
 are retained, including notices for upstream optional features.
 
+The Linux AppImage builds the AppImage type-2 runtime from pinned sources.
+It links libfuse, Squashfuse and Zstandard statically and loads glibc from
+the host. The source record and license notices for the bundled code are under
+`usr/share/doc/ape-pdf-studio/appimage-runtime` in the AppImage. See
+[`SOURCE_CODE.md`](SOURCE_CODE.md) for the matching source archives.
+
 ## Source availability and replacing libraries
 
 The matching GitHub tag provides the application source for Windows and Linux

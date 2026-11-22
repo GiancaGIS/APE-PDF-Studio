@@ -651,9 +651,6 @@ class InlineText(QObject):
         if not self.active:
             return
         viewport = self.view.viewport()
-        self.bar.setStyleSheet(
-            f"QFrame#InlineTextToolbar {{ background: {theme_color('surface')}; "
-            f"border: 1px solid {theme_color('strong_border')}; border-radius: 8px; }}")
         self.bar.setFixedWidth(min(660, max(120, viewport.width() - 24)))
         self.bar.adjustSize()
         bar_y = 12

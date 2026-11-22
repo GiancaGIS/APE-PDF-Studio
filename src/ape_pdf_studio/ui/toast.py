@@ -2,7 +2,7 @@
 from ..core.localization import tr
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout
 
@@ -115,6 +115,7 @@ class CompletionToast(QFrame):
 
 class UpdateToast(CompletionToast):
     DURATION_MS = 15000
+    install_requested = Signal(object)
 
     def __init__(self, parent, anchor):
         self._anchor = anchor
@@ -122,22 +123,36 @@ class UpdateToast(CompletionToast):
         anchor.installEventFilter(self)
         self.badge.setText("↑")
         self.setAccessibleName(tr("Aggiornamento disponibile"))
+        self.install_button = QPushButton(tr("Scarica e installa…"))
+        self.install_button.setAutoDefault(False)
+        self.install_button.clicked.connect(lambda: self.install_requested.emit(self.release))
+        self.install_button.hide()
+        self.text_layout.addWidget(self.install_button)
         self.release_button = QPushButton(tr("Apri la release su GitHub"))
         self.release_button.setAutoDefault(False)
         self.release_button.clicked.connect(self.open_release)
         self.text_layout.addWidget(self.release_button)
         self.release = None
 
-    def show_update(self, release):
+    def show_update(self, release, *, allow_install=False):
         if release is None or not release.update_available:
             return
         self.release = release
         self.title.setText(tr("Aggiornamento disponibile"))
         self._filename = tr("È disponibile la versione {0}.", release.version)
-        self.detail.setText(tr("Apri la release su GitHub per scaricare e installare l'aggiornamento."))
+        self.set_install_allowed(allow_install)
         self.detail.show()
-        self.setAccessibleDescription(self._filename + " " + self.detail.text())
         self._show_notice()
+
+    def set_install_allowed(self, allowed):
+        install = bool(allowed and self.release and self.release.installer)
+        self.install_button.setVisible(install)
+        self.detail.setText(tr("Confermerai l’installazione dopo il download.") if install else
+            tr("Apri la release su GitHub per scaricare e installare l'aggiornamento."))
+        if self.release is not None:
+            self.setAccessibleDescription(self._filename + " " + self.detail.text())
+        if self.isVisible():
+            self._reposition()
 
     def open_release(self):
         if self.release is not None:

@@ -21,7 +21,12 @@ def test_toolbar_palette_preview_and_independent_tool_settings(window):
     window.a_draw.trigger()
     bar = ink.bar
     assert bar.isVisible() and len(bar.swatches) == 30
-    ink.set_tool('pencil')
+    assert bar.settings_button.menu() is bar.menu
+    assert all(button.menu() is None for button in bar.buttons.values())
+    original_sizes = [button.sizeHint() for button in bar.buttons.values()]
+    QTest.mouseClick(bar.buttons['pencil'], Qt.MouseButton.LeftButton)
+    assert bar.tool == 'pencil' and not bar.menu.isVisible()
+    assert [button.sizeHint() for button in bar.buttons.values()] == original_sizes
     assert ink.width.value() == 1.2 and ink.opacity.value() == 75
     ink.width.setValue(2.5)
     bar.set_color(QColor('#ed1515'))
@@ -43,6 +48,8 @@ def test_toolbar_palette_preview_and_independent_tool_settings(window):
     assert ink.width.value() == 16 and ink.width.maximum() == 60
     assert not bar.colors.isVisible() and not bar.opacity_area.isVisible()
     assert bar.width_label.text() == 'Dimensione gomma'
+    ink.set_tool('select')
+    assert not bar.settings_button.isEnabled()
 
 
 def test_settings_popup_scrolls_instead_of_clipping_on_small_screens(window, monkeypatch):

@@ -90,8 +90,8 @@ bash run_linux.sh
 
 Alternatively, create a virtual environment, install with `python -m pip install -e .`, and run `python -m ape_pdf_studio`. Windows is the verified platform; macOS/Linux behavior and platform-specific resource limits need testing on the target system.
 
-For a Linux `.deb` and portable archive or a macOS `.pkg` and app ZIP, follow the
-[native build guide](docs/distribuzione/README.md), which also covers Linux
+For a Linux `.deb`, AppImage and portable archive or a macOS `.pkg` and app ZIP, follow the
+[native build guide](docs/distribution/README.md), which also covers Linux
 packaging from Windows through WSL.
 
 ### First steps
@@ -119,9 +119,11 @@ Color themes apply immediately. Choose blue, teal, sage green, graphite gray, or
 
 ## Checking for updates
 
-Use **Help → Check for updates…** (**Aiuto → Verifica aggiornamenti…** in Italian). The app queries the [official GitHub latest-release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) for `GiancaGIS/APE-PDF-Studio`, compares stable `major.minor.patch` versions numerically, and offers a button to open a newer release in your browser. Install updates manually from that page.
+Use **Help → Check for updates…** (**Aiuto → Verifica aggiornamenti…** in Italian). The app queries the [official GitHub latest-release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) for `GiancaGIS/APE-PDF-Studio`, compares stable `major.minor.patch` versions numerically, and offers a button to open a newer release in your browser.
 
 At every application launch, a background check starts after the window opens. When a newer stable version is available, a toast shows its version and a button to open the GitHub release. The toast stays for 15 seconds, pauses while hovered, and can be dismissed. It appears again on subsequent launches until the application is updated. Startup checks stay silent when there is no update or the request fails; the Help dialog provides detailed results and a manual retry.
+
+Installed Windows copies can opt in to **Offer automatic update installation** in **Settings**. The app checks the installer size and SHA-256 against the GitHub release and requires a valid Authenticode signature from the same certificate as the running app. After you confirm, the app goes through its usual save and close prompts. Once the app has exited, setup installs the update in the current installation scope and Windows can ask for administrator approval. Use the GitHub release page for unsigned builds, certificate changes and other platforms.
 
 Checks run asynchronously, with a 12-second deadline and a 1 MiB response limit. Startup and manual checks share the same client and do not duplicate an in-flight request. They use HTTPS with certificate validation, reject redirects, and send no PDF contents, paths, passwords, or GitHub tokens. GitHub receives the normal network request, including your IP address and the application's version in its User-Agent. A missing public release, request limit, invalid response, or connection failure is reported separately from an up-to-date result in the Help dialog. Drafts and prereleases are excluded. Tags must use `1.2.3` or `v1.2.3`, optionally with SemVer build metadata; publishing a Git tag alone does not create a release.
 
@@ -141,7 +143,7 @@ prepares/checks `.venv-build`, preserves its exit code and records progress in
 `-BundleOnly` for the standalone folder, or
 `.\.venv-build\Scripts\python.exe scripts/build.py --help` for options. The
 older `scripts/build_installer.bat` command remains a compatibility forwarder.
-See the [build and distribution guide](docs/distribuzione/README.md).
+See the [build and distribution guide](docs/distribution/README.md).
 
 | Installation mode | Permissions | Default folder |
 | --- | --- | --- |
@@ -475,7 +477,7 @@ scripts/                  Build entry points and dependency inspection
   examples/               Synthetic sample PDF generators
   qa/                     Diagnostics, screenshots and bounded fuzzing
 build_tools/              Windows, Linux and macOS builds, tooling and checks
-docs/distribuzione/       Build, signing and distribution guide
+docs/distribution/       Build, signing and distribution guide
 run_windows.bat           Windows source startup
 run_linux.sh              Linux source startup
 run_mac.command           macOS source startup
@@ -495,7 +497,7 @@ dependencies. Open **Help → Licenses and source code** to read them in the app
 For Windows and Linux, the release tag provides the application source through GitHub's
 **Source code (zip)**. The same page provides matching dependency sources and
 SHA-256 checksums. See [source and rebuild instructions](SOURCE_CODE.md) and
-the [build and distribution guide](docs/distribuzione/README.md#windows).
+the [build and distribution guide](docs/distribution/README.md#windows).
 
 - [QtPdf](https://doc.qt.io/qtforpython-6/PySide6/QtPdf/index.html)
 - [QPdfView](https://doc.qt.io/qtforpython-6/PySide6/QtPdfWidgets/QPdfView.html)

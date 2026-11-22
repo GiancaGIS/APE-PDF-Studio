@@ -23,10 +23,11 @@ preparation.
 Packaging checks the payload for the build account's paths in plain files,
 compressed PyInstaller modules and ZIP entries. Windows checks the installer
 bytes after assembling the verified payload. Linux also unpacks and checks the
-finished Debian package before copying it to `dist/linux/`. Build logs and
+finished Debian package and AppImage before copying them to `dist/linux/`. Build logs and
 virtualenv metadata belong in local build directories.
 
-The Linux portable archive uses neutral ownership metadata in its tar headers.
+The Linux portable archive and AppImage use neutral ownership metadata. The
+AppImage has normalized filesystem timestamps and excludes extended attributes.
 
 ## Windows
 
@@ -119,7 +120,8 @@ integrity verification after signing. `-SkipSmokeTest` is rejected for releases.
 ## Linux
 
 Build natively on glibc Linux with Python 3.11+, a C/C++ compiler, make, the
-Qt desktop libraries, and `dpkg-deb`. The reference build host is Ubuntu 26.04.
+Qt desktop libraries, `dpkg-deb`, `squashfs-tools` and a running Docker engine.
+The reference build host is Ubuntu 26.04.
 The `.deb` records its architecture and the build host's glibc version as the
 minimum supported version. For the Qt X11 platform plugin on Ubuntu, install
 `libgl1 libegl1 libx11-xcb1 libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4
@@ -132,13 +134,25 @@ bash build_tools/common/prepare_unix.sh .venv-build/bin/python
 ```
 
 The last command forwards to `build_tools/linux/build_linux_installer.sh`.
-Use `--skip-deb` to create just the portable archive. Output is in
+It creates the `.deb`, `.AppImage` and `.tar.gz` from one Linux bundle and
+includes each file in the SHA-256 list. Use `--skip-deb` to build the AppImage
+and portable archive. Output is in
 `dist/linux/`. The Debian package installs under `/opt/ape-pdf-studio`, adds
 the desktop launcher and PDF MIME registration, and provides
 `ape-pdf-studio` and `ape-pdf-cli` in the usual command path.
 
+Make the AppImage executable with `chmod +x APEPDFStudio-<version>-linux-<arch>.AppImage`
+and run it. Where FUSE is unavailable, use `APPIMAGE_EXTRACT_AND_RUN=1` with
+the same command. The AppImage has the same architecture, glibc baseline and
+host desktop-library requirements as the Linux bundle used for the `.deb`.
+The build compiles the launcher from hash-verified sources in a Docker container
+with networking disabled. It checks the extracted AppImage for local build
+paths and tests the packaged CLI and PDF workers. The dependency archive stores
+the launcher sources and compiler recipe. See the
+[relinking instructions](../../SOURCE_CODE.md#rebuild-and-relink-the-appimage-launcher).
+
 From Windows with an existing Ubuntu WSL distribution, Python with venv,
-`rsync` and the Linux prerequisites installed:
+`rsync`, Docker available from WSL and the Linux prerequisites installed:
 
 ```powershell
 .\build_tools\linux\build_linux_installer.bat -Distribution Ubuntu
@@ -185,6 +199,35 @@ The [Linux and macOS installers workflow](../../.github/workflows/unix-build.yml
 can run on demand on native GitHub runners and produces development artifacts.
 Source startup remains available through `bash run_linux.sh` and
 `bash run_mac.command`.
+
+## Qt PDF provenance for 1.3.1
+
+The Qt PDF and Qt PDF Widgets libraries in the Windows x64 staging bundle,
+Linux amd64 `.deb` and Linux x86_64 AppImage match the libraries in the published
+`PySide6_Pdf 6.12.0.140` wheels for their respective platforms. The wheel
+SHA-256 hashes match the [PyPI release metadata](https://pypi.org/pypi/PySide6-Pdf/6.12.0.140/json).
+
+The Qt SDK snapshot `6.12.0-0-202609281005` links those library builds to the
+revisions reported by its Qt PDF SPDX software bills of materials (SBOMs).
+
+| Platform | Qt PDF revision in the SBOM | Wheel comparison with SDK libraries |
+| --- | --- | --- |
+| Windows x64 | `d505fc23640d2bd6345e6483eb73daf4e19f5829` | Same bytes after excluding the PE checksum, certificate-directory entry and Authenticode certificate table. The CodeView GUIDs and build timestamps also match. |
+| Linux x86_64 | `555d9ab0ed0b2d9e89f527b7511ac87d05b848c0` | Identical files and ELF build IDs. |
+
+The [Windows SDK catalog](https://mirrors.ocf.berkeley.edu/qt/online/qtsdkrepository/windows_x86/extensions/qtpdf/6120/61400/msvc2022_64/),
+[Linux SDK catalog](https://mirrors.ocf.berkeley.edu/qt/online/qtsdkrepository/linux_x64/extensions/qtpdf/6120/61400/x86_64/)
+and [source catalog](https://mirrors.ocf.berkeley.edu/qt/online/qtsdkrepository/all_os/extensions/qtwebengine/6120/61400/src_doc_examples/)
+list the 28 September 2026 snapshot on the [Qt mirror network](https://download.qt.io/static/mirrorlist/mirmon/).
+Its published source archive is
+`6.12.0-0-202609281005qtwebengine-everywhere-src-6.140.0.tar.xz`, with SHA-256
+`141e9b230e5ec9ee65a7357ca4b87d702e4badc515289eeade1047a788bb96e7`.
+The archived `.tag` matches the public
+[`v6.140.0-rc` Qt WebEngine revision](https://github.com/qt/qtwebengine/tree/v6.140.0-rc).
+All 1,801 files from that revision's Git export match the corresponding files
+in the Qt source archive. The Linux build revision above comes from the SDK
+SBOM. Both prepared 1.3.1 `DependencySources.zip` files contain the source
+archive with the verified SHA-256.
 
 ## Verification
 

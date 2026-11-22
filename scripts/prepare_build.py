@@ -78,7 +78,7 @@ def capture(command, root):
 
 def prepare(root=ROOT, *, check_only=False):
     if os.name != 'nt':
-        raise RuntimeError('This procedure prepares Windows x64 builds only. See docs/distribuzione/README.md.')
+        raise RuntimeError('This procedure prepares Windows x64 builds only. See docs/distribution/README.md.')
     root = root.resolve()
     python = Path(sys.executable).absolute() if sys.prefix != sys.base_prefix else root / '.venv-build/Scripts/python.exe'
     if not python.is_file():

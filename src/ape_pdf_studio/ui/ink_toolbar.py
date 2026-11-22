@@ -57,6 +57,10 @@ class StrokePreview(QWidget):
             return
         color = QColor(self.owner.color)
         color.setAlphaF(self.owner.opacity.value()/100)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(Qt.GlobalColor.white)
+        painter.drawRoundedRect(self.rect(), 6, 6)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(color, self.owner.width_control.value(), Qt.PenStyle.SolidLine,
             Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         path = QPainterPath(QPointF(15, 36))
@@ -102,14 +106,11 @@ class DrawingToolbar(QToolBar):
         self.settings_action = QAction(icon('style'), tr('Stile'), self)
         self.addAction(self.settings_action)
         self.settings_button = self.widgetForAction(self.settings_action)
+        self.settings_button.setObjectName('InkStyleButton')
         self.settings_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.settings_button.setToolTip(tr('Colori, spessore e opacità'))
-        self.settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        self.settings_button.setMinimumWidth(85)
+        self.settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.menu = QMenu(self)
         self.settings_button.setMenu(self.menu)
-        self.settings_action.triggered.connect(lambda: self.menu.popup(
-            self.settings_button.mapToGlobal(self.settings_button.rect().bottomLeft())))
         panel = QFrame()
         self.panel = panel
         panel.setObjectName('InkStylePanel')
@@ -189,12 +190,6 @@ class DrawingToolbar(QToolBar):
         action.setDefaultWidget(self.scroll)
         self.menu.addAction(action)
         self.menu.aboutToShow.connect(self._fit_popup)
-        for code in self.profiles:
-            button = self.buttons[code]
-            button.setMenu(self.menu)
-            button.setMinimumWidth(50)
-            button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-            button.pressed.connect(lambda tool=code: self.set_tool(tool))
         self.width_control.valueChanged.connect(self._style_changed)
         self.opacity.valueChanged.connect(self._style_changed)
         self.width_slider.valueChanged.connect(lambda value: self.width_control.setValue(value/10))
@@ -203,9 +198,11 @@ class DrawingToolbar(QToolBar):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.addWidget(spacer)
         self.delete_action = QAction(icon('delete'), tr('Elimina disegno'), self)
+        self.delete_action.setProperty('glyph', 'delete')
         self.addAction(self.delete_action)
         self.delete_button = self.widgetForAction(self.delete_action)
         self.done_action = QAction(icon('close'), tr('Fine'), self)
+        self.done_action.setProperty('glyph', 'close')
         self.addAction(self.done_action)
         self.widgetForAction(self.done_action).setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._sync()
@@ -232,10 +229,11 @@ class DrawingToolbar(QToolBar):
     def _sync(self):
         for code, action in self.actions_by_tool.items():
             action.setChecked(code == self.tool)
-            self.buttons[code].setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon if code == self.tool
-                else Qt.ToolButtonStyle.ToolButtonIconOnly)
-        self.settings_action.setEnabled(self.tool != 'select')
+        self.settings_action.setEnabled(self.tool in self.profiles)
+        self.settings_action.setProperty('glyph', 'style' if self.tool in ('select', 'eraser') else None)
         if self.tool == 'select':
+            self.settings_action.setIcon(icon('style'))
+            self.settings_button.setToolTip(tr('Stile'))
             return
         width, opacity, color = self.profiles[self.tool]
         blockers = [QSignalBlocker(widget) for widget in (self.width_control, self.width_slider, self.opacity, self.opacity_slider)]
@@ -253,7 +251,9 @@ class DrawingToolbar(QToolBar):
         self.width_slider.setAccessibleName(self.width_label.text())
         for swatch in self.swatches:
             swatch.setChecked(swatch.color == self.color)
-        self.settings_action.setIcon(icon('eraser' if self.tool == 'eraser' else 'style', self.color.name()))
+        self.settings_action.setIcon(icon('style', None if self.tool == 'eraser' else self.color.name()))
+        self.settings_button.setToolTip(tr('Dimensione gomma') if self.tool == 'eraser' else
+            tr('Colori, spessore e opacità'))
         self.preview.update()
         del blockers
 

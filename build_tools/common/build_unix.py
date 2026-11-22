@@ -18,6 +18,7 @@ import tomllib
 from xml.etree import ElementTree
 import zipfile
 
+from build_appimage import RUNTIME_RECIPE, RUNTIME_RECIPE_FILES, build_appimage, runtime_payload
 from build_opencv import source_archive, verify_bundle, verify_installed
 from compile_app_modules import compile_modules
 from release_privacy import check_mupdf_native, check_paths, local_paths, public_tar_owner
@@ -120,7 +121,7 @@ def macos_package(bundle, output, stage, app_version, machine, installer_identit
         run('pkgutil', '--check-signature', installer)
 
 
-def source_assets(output, target, app_version, machine, opencv):
+def source_assets(output, target, app_version, machine, opencv, *, appimage=None):
     import pymupdf
     from prepare_release import digest, project_files
     stem = f'APEPDFStudio-{app_version}-{target}-{machine}'
@@ -128,12 +129,20 @@ def source_assets(output, target, app_version, machine, opencv):
                  'MuPDF': pymupdf.mupdf_version,
                  'environment': {dist.metadata['Name']: dist.version for dist in metadata.distributions()
                                  if dist.metadata.get('Name')}}
+    if appimage is not None:
+        _, runtime_sources, provenance = appimage
+        inventory['AppImage'] = provenance
     environment = output / (stem + '-build-environment.json')
     environment.write_text(json.dumps(inventory, sort_keys=True, indent=2) + '\n', encoding='utf-8')
     original = source_archive(opencv['recipe'])
     if target == 'linux':
         with zipfile.ZipFile(output / (stem + '-DependencySources.zip'), 'w', zipfile.ZIP_STORED) as archive:
             archive.write(original, f'sources/python/{original.name}')
+            if appimage is not None:
+                for source in runtime_sources:
+                    archive.write(source, f'sources/appimage/{source.name}')
+                for name in RUNTIME_RECIPE_FILES:
+                    archive.write(RUNTIME_RECIPE / name, f'build-tools/appimage/{name}')
             archive.write(environment, 'linux-build-environment.json')
             archive.writestr('README.md', f'''# APE PDF Studio {app_version} Linux build sources
 
@@ -142,6 +151,11 @@ for the [matching tag](https://github.com/GiancaGIS/APE-PDF-Studio/archive/refs/
 Place the original OpenCV archive from `sources/python/` in
 `.dev-deps/legal/sources/` in the source checkout to rebuild OpenCV.
 See `linux-build-environment.json` for the build recipe, versions and hashes.
+`sources/appimage/` contains the exact AppImage runtime sources, its libfuse
+patches and the pinned libfuse, Squashfuse and Zstandard sources.
+`build-tools/appimage/` contains the isolated compiler recipe. See the build
+inventory for hashes and compiler packages, and `SOURCE_CODE.md` in the tagged
+checkout for rebuild and relinking instructions.
 Add the corresponding sources and notices for the other bundled dependencies
 before publishing the binaries.
 ''')
@@ -166,8 +180,11 @@ def build(args):
     architectures = {'linux': {'x86_64', 'aarch64'}, 'macos': {'x86_64', 'arm64'}}
     if machine not in architectures[target]:
         raise RuntimeError(f'Unsupported {target} architecture: {machine}')
-    tools = ['dpkg-deb'] if target == 'linux' and not args.skip_deb else []
-    if target == 'macos':
+    if target == 'linux':
+        tools = ['docker', 'mksquashfs', 'unsquashfs']
+        if not args.skip_deb:
+            tools.append('dpkg-deb')
+    else:
         tools = ['ditto', 'codesign', 'pkgbuild', 'productbuild', 'pkgutil']
     for tool in tools:
         if not shutil.which(tool):
@@ -184,6 +201,7 @@ def build(args):
     work.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='package-', dir=work) as directory:
         stage = Path(directory)
+        appimage = runtime_payload(stage, machine, args.jobs) if target == 'linux' else None
         compiled = stage / 'cython'
         compile_modules(compiled, jobs=args.jobs)
         frozen = stage / 'bundle'
@@ -202,7 +220,8 @@ def build(args):
             macos_package(bundle, artifacts, stage, app_version, machine, args.installer_identity)
         else:
             linux_package(bundle, artifacts, stage, app_version, machine, skip_deb=args.skip_deb)
-        source_assets(artifacts, target, app_version, machine, opencv)
+            build_appimage(bundle, artifacts, stage, app_version, machine, appimage, args.jobs)
+        source_assets(artifacts, target, app_version, machine, opencv, appimage=appimage)
         destination = ROOT / 'dist' / target
         destination.mkdir(parents=True, exist_ok=True)
         for path in sorted(artifacts.iterdir()):
@@ -214,7 +233,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('target', choices=['linux', 'macos'])
     parser.add_argument('--python', type=Path, help='Path to the prepared virtualenv interpreter')
-    parser.add_argument('--skip-deb', action='store_true', help='Linux only: create the portable archive without the .deb')
+    parser.add_argument('--skip-deb', action='store_true', help='Linux only: create the AppImage and portable archive without the .deb')
     parser.add_argument('--jobs', type=int, choices=range(1, 17), default=min(4, os.cpu_count() or 1), metavar='1..16')
     parser.add_argument('--codesign-identity', help='macOS Developer ID Application identity')
     parser.add_argument('--installer-identity', help='macOS Developer ID Installer identity')

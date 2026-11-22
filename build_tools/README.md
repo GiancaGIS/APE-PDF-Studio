@@ -14,7 +14,7 @@ From the repository root:
 | Forward through Python | `.venv-build\Scripts\python.exe scripts/build.py` |
 | Inspect environment without changes | `.venv-build\Scripts\python.exe scripts/prepare_build.py --inspect` |
 | Show packaging options | `.venv-build\Scripts\python.exe scripts/build.py --help` |
-| Build Linux installer and archive | `bash build_tools/linux/build_linux_installer.sh --python .venv-build/bin/python` |
+| Build Linux `.deb`, AppImage and archive | `bash build_tools/linux/build_linux_installer.sh --python .venv-build/bin/python` |
 | Build Linux from Windows through WSL | `build_tools\linux\build_linux_installer.bat -Distribution Ubuntu` |
 | Build macOS app ZIP and installer | `bash build_tools/macos/build_macos_app.sh --python .venv-build/bin/python` |
 
@@ -40,5 +40,5 @@ Source startup commands live at the root: `run_windows.bat`, `run_linux.sh`, and
 and `scripts/qa/`. The old `scripts/build_installer.bat`, `scripts/run_windows.bat`
 and `scripts/run_mac_linux.sh` are compatibility forwarders only.
 
-See the [distribution guide](../docs/distribuzione/README.md) for prerequisites,
+See the [distribution guide](../docs/distribution/README.md) for prerequisites,
 options, signing, legal assets, outputs and platform limits.

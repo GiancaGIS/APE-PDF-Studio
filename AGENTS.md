@@ -18,7 +18,7 @@ their respective systems. Document processing is local.
 - `scripts/`: build entry points and dependency inspection; `scripts/examples/`
   generates examples and `scripts/qa/` contains diagnostics and fuzzing.
 - `build_tools/`: native packaging flows in `windows/`, `linux/`, `macos/`, `common/`,
-  `checks/`, `launchers/` and `branding/`. See `docs/distribuzione/README.md`.
+  `checks/`, `launchers/` and `branding/`. See `docs/distribution/README.md`.
 - `tests/`: PDF engine, Qt interface and security boundary tests.
 - `examples/`: the only folder for sample PDFs maintained in the repository.
 - `build_tools/windows/`, `licenses/`, `SOURCE_CODE.md`, `THIRD_PARTY_NOTICES.md`: packaging,
