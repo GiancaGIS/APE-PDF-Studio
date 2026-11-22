@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -151,6 +152,7 @@ def test_unsupported_packaging_fails_explicitly(monkeypatch):
 
 @pytest.mark.parametrize('script', ['run_linux.sh', 'run_mac.command',
                                     'build_tools/common/prepare_unix.sh',
+                                    'build_tools/linux/appimage/build-runtime.sh',
                                     'build_tools/linux/build_linux_installer.sh',
                                     'build_tools/linux/build_linux_wsl.sh',
                                     'build_tools/macos/build_macos_app.sh'])
@@ -185,7 +187,7 @@ def test_corresponding_source_includes_build_procedures_and_entry_points():
     assert {'.gitattributes', 'run_windows.bat', 'run_linux.sh', 'run_mac.command', 'scripts/build.py', 'scripts/prepare_build.py',
             'build_tools/windows/APEPDFStudio.spec', 'build_tools/windows/APEPDFStudio.iss',
             'build_tools/windows/build_windows_installer.ps1', 'build_tools/common/prepare_release.py',
-            'docs/distribuzione/README.md'} <= paths
+            'docs/distribution/README.md', 'build_tools/common/build_appimage.py'} <= paths
 
 
 @pytest.mark.parametrize('target', ['linux', 'macos'])
@@ -204,24 +206,66 @@ def test_unix_source_assets_preserve_opencv_source(tmp_path, monkeypatch, target
     monkeypatch.setattr(unix, 'ROOT', tmp_path)
     monkeypatch.setattr(prepare_release, 'project_files', lambda: [app])
 
-    unix.source_assets(output, target, '1.3.1', 'x86_64', {'recipe': {}})
-
     stem = f'APEPDFStudio-1.3.1-{target}-x86_64'
+    appimage = None
+    if target == 'linux':
+        image = output / f'{stem}.AppImage'
+        image.write_bytes(b'AppImage payload')
+        runtime_source = tmp_path / 'type2-runtime-version.tar.gz'
+        runtime_source.write_bytes(b'AppImage runtime source')
+        runtime_record = {'runtime': {'sha256': 'a' * 64}}
+        appimage = (None, [runtime_source], runtime_record)
+
+    unix.source_assets(output, target, '1.3.1', 'x86_64', {'recipe': {}}, appimage=appimage)
+
     if target == 'linux':
         dependency_zip = output / f'{stem}-DependencySources.zip'
         assert not (output / f'{stem}-Source.zip').exists()
         with zipfile.ZipFile(dependency_zip) as archive:
             assert archive.read(f'sources/python/{source.name}') == source.read_bytes()
+            assert archive.read(f'sources/appimage/{runtime_source.name}') == runtime_source.read_bytes()
+            assert json.loads(archive.read('linux-build-environment.json'))['AppImage'] == runtime_record
+            assert archive.read('build-tools/appimage/build-runtime.sh') == (
+                ROOT / 'build_tools/linux/appimage/build-runtime.sh').read_bytes()
+            assert b'FROM debian:bookworm-slim@sha256:' in archive.read('build-tools/appimage/Dockerfile')
             assert b'/archive/refs/tags/v1.3.1.zip' in archive.read('README.md')
             assert archive.read('linux-build-environment.json') == (output / f'{stem}-build-environment.json').read_bytes()
-        assert f'{prepare_release.digest(dependency_zip)}  {dependency_zip.name}' in (
-            output / f'{stem}-SHA256SUMS.txt'
-        ).read_text(encoding='ascii').splitlines()
+        checksums = (output / f'{stem}-SHA256SUMS.txt').read_text(encoding='ascii').splitlines()
+        assert f'{prepare_release.digest(dependency_zip)}  {dependency_zip.name}' in checksums
+        assert f'{prepare_release.digest(image)}  {image.name}' in checksums
     else:
         prefix = 'APE-PDF-Studio-1.3.1/'
         with zipfile.ZipFile(output / f'{stem}-Source.zip') as archive:
             assert archive.read(prefix + 'pyproject.toml') == app.read_bytes()
             assert archive.read(prefix + '.dev-deps/legal/sources/' + source.name) == source.read_bytes()
+
+
+@pytest.mark.skipif(sys.platform != 'linux' or not shutil.which('mksquashfs') or not shutil.which('unsquashfs'),
+                    reason='Linux SquashFS tools')
+def test_appimage_checks_extracted_files_for_private_paths(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / 'build_tools/common'))
+    appimage = load('build_appimage_tested', 'build_tools/common/build_appimage.py')
+    output, bundle = tmp_path / 'output', tmp_path / 'bundle'
+    output.mkdir()
+    bundle.mkdir()
+    (bundle / 'private.txt').write_text('/home/fixture-builder/private/project', encoding='utf-8')
+    runtime = tmp_path / 'runtime'
+    runtime.write_bytes(b'fixture runtime')
+    archives = []
+    for prefix, _, _, _, notices in appimage.SOURCES:
+        source = tmp_path / (prefix + '.tar')
+        with tarfile.open(source, 'w') as archive:
+            for name in notices:
+                info = tarfile.TarInfo(f'{prefix}/{name}')
+                info.size = len(b'license')
+                archive.addfile(info, io.BytesIO(b'license'))
+        archives.append(source)
+
+    markers = privacy.local_paths('/home/fixture-builder')
+    monkeypatch.setattr(appimage, 'local_paths', lambda *_: markers)
+    monkeypatch.setattr(appimage, 'file_has_local_path', lambda *_: False)
+    with pytest.raises(RuntimeError, match='Local build information.*private.txt'):
+        appimage.build_appimage(bundle, output, tmp_path, '1.3.1', 'x86_64', (runtime, archives, {}), 1)
 
 
 def test_ci_calls_existing_tools():

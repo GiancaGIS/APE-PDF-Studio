@@ -27,8 +27,45 @@ and dependency archive belonging to your installer version.
 For Linux, use the same tagged application source with the matching
 `APEPDFStudio-<version>-linux-<architecture>-DependencySources.zip`. Its
 source records identify any dependency archives shared with Windows.
+For an AppImage build, the archive also includes the exact type-2 runtime,
+libfuse, Squashfuse and Zstandard sources and the container build recipe.
+The AppImage contains the upstream license notices and the provenance record.
 For macOS development packages, see the source ZIP and build environment
-inventory. Build instructions are in the [native build guide](docs/distribuzione/README.md).
+inventory. Build instructions are in the [native build guide](docs/distribution/README.md).
+
+## Rebuild and relink the AppImage launcher
+
+Unpack the matching Linux `DependencySources.zip` and run these commands from
+the extracted directory on Linux with Docker available. The compiler uses a
+Debian base image pinned by digest. The build inventory records the compiler
+packages, source hashes and launcher hash used for the release.
+
+```bash
+cp build-tools/appimage/build-runtime.sh sources/appimage/
+mkdir -p runtime-out
+docker build -t ape-appimage-builder build-tools/appimage
+docker run --rm --network none --read-only --cap-drop ALL \
+  --security-opt=no-new-privileges --tmpfs /tmp:rw,exec -e HOME=/tmp \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/sources/appimage:/inputs:ro" -v "$PWD/runtime-out:/out" \
+  ape-appimage-builder sh /inputs/build-runtime.sh 4
+```
+
+To test a modified libfuse, unpack `fuse-3.15.0.tar.xz`, edit the source, and
+repack it under the same filename and top-level directory before running the
+recipe. The recipe applies the runtime project's mount patch from the type-2
+source archive. Keep that patch applicable to your changes.
+
+To use the rebuilt launcher, extract the distributed AppImage with
+`--appimage-extract`. Recompress `squashfs-root` and join it to the launcher.
+The original AppImage remains available alongside the rebuilt copy.
+
+```bash
+SOURCE_DATE_EPOCH=0 mksquashfs squashfs-root payload.squashfs \
+  -noappend -all-root -no-xattrs -comp zstd
+cat runtime-out/runtime payload.squashfs > APEPDFStudio-rebuilt.AppImage
+chmod +x APEPDFStudio-rebuilt.AppImage
+```
 
 ## Rebuild the application on Windows x64
 
@@ -118,4 +155,4 @@ Publish the installer and matching dependency archive on the release tagged
 `v<version>`. Tag the exact commit used for the build and retain all relevant
 copyright and license notices. Preserve the tags and dependency assets so
 recipients of older installers can still obtain their corresponding source.
-See the [build and distribution guide](docs/distribuzione/README.md#windows).
+See the [build and distribution guide](docs/distribution/README.md#windows).

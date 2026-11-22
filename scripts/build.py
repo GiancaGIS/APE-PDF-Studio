@@ -12,7 +12,7 @@ def command(arguments):
         interpreter = [] if '--python' in arguments or any(arg.startswith('--python=') for arg in arguments) else ['--python', sys.executable]
         return ['bash', str(ROOT / 'build_tools' / scripts[sys.platform]), *interpreter, *arguments]
     if sys.platform != 'win32':
-        raise RuntimeError('Standalone packaging supports Windows, Linux and macOS. See docs/distribuzione/README.md.')
+        raise RuntimeError('Standalone packaging supports Windows, Linux and macOS. See docs/distribution/README.md.')
     interpreter = [] if any(value.lower().split(':', 1)[0] in ('-python', '-pythonexe') for value in arguments) else ['-PythonExe', sys.executable]
     return ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
             str(ROOT / 'build_tools/windows/build_windows_installer.ps1'),

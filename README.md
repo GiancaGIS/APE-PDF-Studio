@@ -90,8 +90,8 @@ bash run_linux.sh
 
 Alternatively, create a virtual environment, install with `python -m pip install -e .`, and run `python -m ape_pdf_studio`. Windows is the verified platform; macOS/Linux behavior and platform-specific resource limits need testing on the target system.
 
-For a Linux `.deb` and portable archive or a macOS `.pkg` and app ZIP, follow the
-[native build guide](docs/distribuzione/README.md), which also covers Linux
+For a Linux `.deb`, AppImage and portable archive or a macOS `.pkg` and app ZIP, follow the
+[native build guide](docs/distribution/README.md), which also covers Linux
 packaging from Windows through WSL.
 
 ### First steps
@@ -143,7 +143,7 @@ prepares/checks `.venv-build`, preserves its exit code and records progress in
 `-BundleOnly` for the standalone folder, or
 `.\.venv-build\Scripts\python.exe scripts/build.py --help` for options. The
 older `scripts/build_installer.bat` command remains a compatibility forwarder.
-See the [build and distribution guide](docs/distribuzione/README.md).
+See the [build and distribution guide](docs/distribution/README.md).
 
 | Installation mode | Permissions | Default folder |
 | --- | --- | --- |
@@ -477,7 +477,7 @@ scripts/                  Build entry points and dependency inspection
   examples/               Synthetic sample PDF generators
   qa/                     Diagnostics, screenshots and bounded fuzzing
 build_tools/              Windows, Linux and macOS builds, tooling and checks
-docs/distribuzione/       Build, signing and distribution guide
+docs/distribution/       Build, signing and distribution guide
 run_windows.bat           Windows source startup
 run_linux.sh              Linux source startup
 run_mac.command           macOS source startup
@@ -497,7 +497,7 @@ dependencies. Open **Help → Licenses and source code** to read them in the app
 For Windows and Linux, the release tag provides the application source through GitHub's
 **Source code (zip)**. The same page provides matching dependency sources and
 SHA-256 checksums. See [source and rebuild instructions](SOURCE_CODE.md) and
-the [build and distribution guide](docs/distribuzione/README.md#windows).
+the [build and distribution guide](docs/distribution/README.md#windows).
 
 - [QtPdf](https://doc.qt.io/qtforpython-6/PySide6/QtPdf/index.html)
 - [QPdfView](https://doc.qt.io/qtforpython-6/PySide6/QtPdfWidgets/QPdfView.html)

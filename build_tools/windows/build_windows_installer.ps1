@@ -32,7 +32,7 @@ if ($Help) {
     Write-Host 'Opzioni: -PythonExe PATH -InnoCompiler PATH -OfflineSources -DistRoot PATH -LicenseFile PATH -SkipSmokeTest'
     Write-Host 'Release firmata: -Release -CertificateThumbprint THUMBPRINT [-TimestampServer HTTPS_URL]'
     Write-Host 'La build prepara il virtualenv, compila PYD e sandbox, verifica il pacchetto e crea installer e sorgenti.'
-    Write-Host 'Log: build\windows-build.log. Guida: docs\distribuzione\README.md.'
+    Write-Host 'Log: build\windows-build.log. Guida: docs\distribution\README.md.'
     return
 }
 . (Join-Path $PSScriptRoot 'build_environment.ps1')
